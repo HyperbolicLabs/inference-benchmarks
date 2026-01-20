@@ -44,7 +44,8 @@ jobs:
   check-images:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.aiperf == 'true' || needs.detect-changes.outputs.osworld == 'true' || github.event_name == 'workflow_dispatch'
+    # Always run to check if images exist (even if no changes detected)
+    if: always()
     outputs:
       aiperf-exists: ${{ steps.check-aiperf.outputs.exists }}
       osworld-exists: ${{ steps.check-osworld.outputs.exists }}
@@ -61,7 +62,7 @@ jobs:
 
       - name: Check if AIPerf image exists
         id: check-aiperf
-        if: needs.detect-changes.outputs.aiperf == 'true' || github.event_name == 'workflow_dispatch'
+        if: always()
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/aiperf:latest"
           if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
@@ -75,7 +76,7 @@ jobs:
 
       - name: Check if OSWorld image exists
         id: check-osworld
-        if: needs.detect-changes.outputs.osworld == 'true' || github.event_name == 'workflow_dispatch'
+        if: always()
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/osworld:latest"
           if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
@@ -90,11 +91,11 @@ jobs:
   build-aiperf:
     runs-on: ubuntu-latest
     needs: [detect-changes, check-images]
-    # Build if: changes detected OR image doesn't exist OR manual trigger
+    # Build if: changes detected OR (image doesn't exist AND no changes means first build) OR manual trigger
     if: |
-      (needs.detect-changes.outputs.aiperf == 'true' || 
-       (needs.check-images.outputs.aiperf-exists == 'false' && needs.detect-changes.outputs.aiperf != 'false') ||
-       github.event_name == 'workflow_dispatch')
+      needs.detect-changes.outputs.aiperf == 'true' || 
+      (needs.check-images.outputs.aiperf-exists == 'false' && needs.detect-changes.outputs.aiperf == 'false') ||
+      github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write
@@ -140,11 +141,11 @@ jobs:
   build-osworld:
     runs-on: ubuntu-latest
     needs: [detect-changes, check-images]
-    # Build if: changes detected OR image doesn't exist OR manual trigger
+    # Build if: changes detected OR (image doesn't exist AND no changes means first build) OR manual trigger
     if: |
-      (needs.detect-changes.outputs.osworld == 'true' || 
-       (needs.check-images.outputs.osworld-exists == 'false' && needs.detect-changes.outputs.osworld != 'false') ||
-       github.event_name == 'workflow_dispatch')
+      needs.detect-changes.outputs.osworld == 'true' || 
+      (needs.check-images.outputs.osworld-exists == 'false' && needs.detect-changes.outputs.osworld == 'false') ||
+      github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write
