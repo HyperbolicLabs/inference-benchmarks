@@ -9,4 +9,4 @@ spec:
   resources:
     requests:
       storage: 10Gi
-  storageClassName: standard  # Adjust to your cluster's storage class
+  storageClassName: gcore-nfs-3ab538e0-f64d-47bf-a72a-4fa646944598
