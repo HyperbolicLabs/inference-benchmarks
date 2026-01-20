@@ -103,14 +103,16 @@ spec:
               mountPath: /tmp/results
             resources:
               requests:
-                memory: "1Gi"      # Reduced: AIPerf is I/O bound, minimal memory needed
+                memory: "2Gi"      # Increased: AIPerf needs more memory for processing
                 cpu: "200m"        # Reduced: Mostly waiting for HTTP responses
               limits:
-                memory: "2Gi"      # Reduced: Sufficient headroom for parsing
+                memory: "4Gi"      # Increased: More headroom for parsing and metrics
                 cpu: "1000m"       # Reduced: Burst capacity for metric processing
           volumes:
           - name: results
-            persistentVolumeClaim:
-              claimName: aiperf-results
-              # Optional: Use emptyDir for ephemeral results
-              # emptyDir: {}
+            # Use emptyDir to avoid NFS mount issues
+            # Results are ephemeral but benchmark metrics go to Datadog
+            emptyDir: {}
+            # Optional: Use PVC for persistent results
+            # persistentVolumeClaim:
+            #   claimName: aiperf-results
