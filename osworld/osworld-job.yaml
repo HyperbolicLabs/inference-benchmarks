@@ -1,0 +1,104 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: osworld
+  namespace: inference-benchmark
+  labels:
+    app: osworld
+    component: evaluation
+spec:
+  ttlSecondsAfterFinished: 86400  # Clean up after 24 hours (evaluations can be long)
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: osworld
+        component: evaluation
+    spec:
+      restartPolicy: Never
+      # OSWorld requires desktop environments - may need privileged mode or specific node selectors
+      # Consider using nodes with GPU support if available
+      containers:
+      - name: osworld-eval
+        image: ghcr.io/hyperboliclabs/osworld:latest
+        imagePullPolicy: Always
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "=== OSWorld Evaluation ==="
+          
+          # Run evaluation (includes Datadog export)
+          cd /osworld
+          python3 run_evaluation.py
+        env:
+        # Inference endpoint configuration
+        - name: OPENAI_BASE_URL
+          value: "http://infra-inference-scheduling-inference-gateway.llm-d.svc.cluster.local/v1"
+        - name: OPENAI_API_KEY
+          value: "dummy-key"
+        - name: MODEL_NAME
+          value: "Qwen/Qwen3-VL-32B-Thinking"
+        
+        # OSWorld configuration
+        - name: PROVIDER_NAME
+          value: "docker"  # Options: docker, aws, virtualbox, vmware, azure, aliyun
+        - name: NUM_ENVS
+          value: "1"  # Number of parallel environments
+        - name: MAX_STEPS
+          value: "15"  # Maximum steps per task
+        - name: MAX_TOKENS
+          value: "32768"  # Maximum tokens per request
+        - name: DOMAIN
+          value: "all"  # Domain to test (or specific domain)
+        - name: TEST_META_PATH
+          value: "evaluation_examples/test_nogdrive.json"
+        - name: RESULT_DIR
+          value: "/osworld/results"
+        - name: ACTION_SPACE
+          value: "pyautogui"
+        - name: OBSERVATION_TYPE
+          value: "screenshot"
+        - name: ADDITIONAL_ARGS
+          value: ""  # Additional arguments for run_multienv_qwen3vl.py
+        # Datadog API key for metrics export (optional)
+        - name: DD_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datadog-api-key
+              key: api-key
+              optional: true
+        
+        # Desktop environment may require privileged access
+        securityContext:
+          privileged: true  # Required for Docker provider
+          capabilities:
+            add:
+            - SYS_ADMIN
+            - NET_ADMIN
+        
+        volumeMounts:
+        - name: results
+          mountPath: /osworld/results
+        - name: docker-sock
+          mountPath: /var/run/docker.sock  # For Docker provider
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "2000m"
+          limits:
+            memory: "16Gi"
+            cpu: "4000m"
+      volumes:
+      - name: results
+        persistentVolumeClaim:
+          claimName: osworld-results
+          # Optional: Use emptyDir for ephemeral results
+          # emptyDir: {}
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+      imagePullSecrets:
+      - name: ghcr-image-pull-secret

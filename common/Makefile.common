@@ -1,0 +1,63 @@
+# Common Makefile functions for benchmarks
+# Include this in benchmark-specific Makefiles
+
+# Default values (can be overridden)
+NAMESPACE ?= inference-benchmark
+KUBECONFIG ?= $(HOME)/hyperbolic/yoofi-cluster.yml
+DOCKER_PLATFORM ?= linux/amd64
+DOCKER_BUILDX ?= docker buildx
+GITHUB_USER ?= hyperboliclabs
+
+# Common build function
+define build-image
+	@echo "Building Docker image: $(IMAGE)"
+	@echo "Platform: $(DOCKER_PLATFORM)"
+	@$(DOCKER_BUILDX) build --platform $(DOCKER_PLATFORM) -t $(IMAGE) .
+	@echo "✅ Image built successfully: $(IMAGE)"
+endef
+
+# Common login function
+define docker-login
+	@echo "Logging in to GitHub Container Registry..."
+	@if [ -z "$(GITHUB_TOKEN)" ]; then \
+		echo "Error: GITHUB_TOKEN environment variable not set"; \
+		echo "Set it with: export GITHUB_TOKEN=your_token"; \
+		exit 1; \
+	fi
+	@echo "$$GITHUB_TOKEN" | docker login ghcr.io -u $(GITHUB_USER) --password-stdin
+	@echo "✅ Logged in successfully"
+endef
+
+# Common push function
+define push-image
+	@echo "Pushing Docker image: $(IMAGE)"
+	@docker push $(IMAGE)
+	@echo "✅ Image pushed successfully"
+endef
+
+# Common deploy function (with PVC)
+define deploy-with-pvc
+	@echo "Deploying PVC (if not exists)..."
+	@kubectl --kubeconfig=$(KUBECONFIG) apply -f pvc.yaml || echo "PVC may already exist"
+	@echo "Deploying to namespace $(NAMESPACE)..."
+	@kubectl --kubeconfig=$(KUBECONFIG) apply -f $(1)
+	@echo "✅ Deployed successfully"
+endef
+
+# Common help function
+define show-help
+	@echo "$(1) Makefile"
+	@echo ""
+	@echo "Usage: make [target] [VARIABLE=value]"
+	@echo ""
+	@echo "Variables:"
+	@echo "  IMAGE_REPO      Docker image repository"
+	@echo "  IMAGE_TAG       Docker image tag (default: latest)"
+	@echo "  NAMESPACE       Kubernetes namespace (default: inference-benchmark)"
+	@echo "  KUBECONFIG      Path to kubeconfig file (default: ~/hyperbolic/yoofi-cluster.yml)"
+	@echo "  DOCKER_PLATFORM Target platform (default: linux/amd64)"
+	@echo "  GITHUB_USER     GitHub username for registry (default: hyperboliclabs)"
+	@echo ""
+	@echo "Targets:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
+endef

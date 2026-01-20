@@ -1,0 +1,98 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: aiperf-benchmark
+  namespace: inference-benchmark
+  labels:
+    app: aiperf
+    component: benchmark
+spec:
+  ttlSecondsAfterFinished: 3600  # Clean up after 1 hour
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: aiperf
+        component: benchmark
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+      - name: ghcr-image-pull-secret
+      containers:
+      - name: aiperf
+        image: ghcr.io/hyperboliclabs/aiperf:latest
+        imagePullPolicy: Always
+        command:
+        - /bin/sh
+        - -c
+        - |
+              set -e
+              echo "=== Running AIPerf Benchmark ==="
+              python3 /scripts/benchmark.py
+              
+              echo "=== Benchmark Complete ==="
+              ls -lh /tmp/results/ || echo "No results directory"
+        env:
+        - name: MODEL_NAME
+          value: "Qwen/Qwen3-VL-32B-Thinking"
+        - name: ENDPOINT_URL
+          value: "https://inference.hyperbolic.ai"
+        - name: ENDPOINT_TYPE
+          value: "chat"
+        # Cloudflare Access credentials (required for authentication)
+        - name: CF_ACCESS_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: cloudflare-access-credentials
+              key: client-id
+              optional: true
+        - name: CF_ACCESS_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: cloudflare-access-credentials
+              key: client-secret
+              optional: true
+        # Concurrency: 20 provides production-like load testing
+        - name: CONCURRENCY
+          value: "20"
+        # Duration-based benchmarking (8 minutes) for sustained load
+        - name: BENCHMARK_DURATION
+          value: "480"
+        - name: BENCHMARK_GRACE_PERIOD
+          value: "30"
+        # Request timeout: 60 seconds per request
+        - name: REQUEST_TIMEOUT
+          value: "60"
+        # Output token limit: Mean of 50 tokens per response
+        - name: OUTPUT_TOKENS_MEAN
+          value: "50"
+        # Safety limit (will be ignored if benchmark_duration is set)
+        - name: REQUEST_COUNT
+          value: "10000"
+        - name: STREAMING
+          value: "true"
+        - name: OUTPUT_DIR
+          value: "/tmp/results"
+        # Datadog API key for metrics export (optional)
+        - name: DD_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datadog-api-key
+              key: api-key
+              optional: true
+        volumeMounts:
+        - name: results
+          mountPath: /tmp/results
+        resources:
+          requests:
+            memory: "1Gi"      # Reduced: AIPerf is I/O bound, minimal memory needed
+            cpu: "200m"        # Reduced: Mostly waiting for HTTP responses
+          limits:
+            memory: "2Gi"      # Reduced: Sufficient headroom for parsing
+            cpu: "1000m"       # Reduced: Burst capacity for metric processing
+      volumes:
+      - name: results
+        persistentVolumeClaim:
+          claimName: aiperf-results
+          # Optional: Use emptyDir for ephemeral results
+          # emptyDir: {}
