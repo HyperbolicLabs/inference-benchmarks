@@ -49,6 +49,16 @@ jobs:
       aiperf-exists: ${{ steps.check-aiperf.outputs.exists }}
       osworld-exists: ${{ steps.check-osworld.outputs.exists }}
     steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Check if AIPerf image exists
         id: check-aiperf
         if: needs.detect-changes.outputs.aiperf == 'true' || github.event_name == 'workflow_dispatch'
@@ -83,7 +93,7 @@ jobs:
     # Build if: changes detected OR image doesn't exist OR manual trigger
     if: |
       (needs.detect-changes.outputs.aiperf == 'true' || 
-       needs.check-images.outputs.aiperf-exists == 'false' || 
+       (needs.check-images.outputs.aiperf-exists == 'false' && needs.detect-changes.outputs.aiperf != 'false') ||
        github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
@@ -133,7 +143,7 @@ jobs:
     # Build if: changes detected OR image doesn't exist OR manual trigger
     if: |
       (needs.detect-changes.outputs.osworld == 'true' || 
-       needs.check-images.outputs.osworld-exists == 'false' || 
+       (needs.check-images.outputs.osworld-exists == 'false' && needs.detect-changes.outputs.osworld != 'false') ||
        github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
