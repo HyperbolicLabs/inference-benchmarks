@@ -91,10 +91,10 @@ jobs:
   build-aiperf:
     runs-on: ubuntu-latest
     needs: [detect-changes, check-images]
-    # Build if: changes detected OR (image doesn't exist AND no changes means first build) OR manual trigger
+    # Build if: changes detected OR image doesn't exist OR manual trigger
     if: |
       needs.detect-changes.outputs.aiperf == 'true' || 
-      (needs.check-images.outputs.aiperf-exists == 'false' && needs.detect-changes.outputs.aiperf == 'false') ||
+      needs.check-images.outputs.aiperf-exists == 'false' ||
       github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
@@ -141,10 +141,10 @@ jobs:
   build-osworld:
     runs-on: ubuntu-latest
     needs: [detect-changes, check-images]
-    # Build if: changes detected OR (image doesn't exist AND no changes means first build) OR manual trigger
+    # Build if: changes detected OR image doesn't exist OR manual trigger
     if: |
       needs.detect-changes.outputs.osworld == 'true' || 
-      (needs.check-images.outputs.osworld-exists == 'false' && needs.detect-changes.outputs.osworld == 'false') ||
+      needs.check-images.outputs.osworld-exists == 'false' ||
       github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
