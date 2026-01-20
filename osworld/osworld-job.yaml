@@ -81,8 +81,8 @@ spec:
         volumeMounts:
         - name: results
           mountPath: /osworld/results
-        - name: docker-sock
-          mountPath: /var/run/docker.sock  # For Docker provider
+        # Docker socket mount removed - cluster uses containerd/cri-o
+        # OSWorld will need to use a different provider or run in privileged mode
         resources:
           requests:
             memory: "8Gi"
@@ -96,9 +96,6 @@ spec:
           claimName: osworld-results
           # Optional: Use emptyDir for ephemeral results
           # emptyDir: {}
-      - name: docker-sock
-        hostPath:
-          path: /var/run/docker.sock
-          type: Socket
+      # Docker socket volume removed - cluster uses containerd
       imagePullSecrets:
       - name: ghcr-image-pull-secret
