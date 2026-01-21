@@ -91,6 +91,15 @@ spec:
               value: "true"
             - name: OUTPUT_DIR
               value: "/tmp/results"
+            # Environment variables to disable TUI in non-interactive Kubernetes environment
+            - name: TERM
+              value: "dumb"
+            - name: CI
+              value: "true"
+            - name: NO_COLOR
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
             # Datadog API key for metrics export (optional)
             - name: DD_API_KEY
               valueFrom:

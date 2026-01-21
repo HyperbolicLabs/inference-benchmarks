@@ -121,13 +121,24 @@ def run_benchmark(
     print(f"Running command: {' '.join(cmd)}")
     print()
     
+    # Prepare environment variables to disable TUI in non-interactive environments
+    env = os.environ.copy()
+    env['TERM'] = 'dumb'  # Disable terminal capabilities
+    env['CI'] = 'true'    # Signal CI/non-interactive environment
+    env['NO_COLOR'] = '1'  # Disable ANSI color codes
+    # Force non-interactive mode
+    env['PYTHONUNBUFFERED'] = '1'  # Disable Python output buffering
+    
     try:
-        # Run AIPerf
+        # Run AIPerf with stdin redirected to /dev/null to prevent TUI initialization
+        # This is critical for running in Kubernetes/containers where there's no TTY
         result = subprocess.run(
             cmd,
+            stdin=subprocess.DEVNULL,  # Redirect stdin to prevent TUI
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            env=env  # Pass environment with TUI-disabling variables
         )
         
         print("✅ Benchmark completed successfully")
