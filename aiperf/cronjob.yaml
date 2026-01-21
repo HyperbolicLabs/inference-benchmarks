@@ -100,6 +100,15 @@ spec:
               value: "1"
             - name: PYTHONUNBUFFERED
               value: "1"
+            # AIPerf timeout configuration to prevent timeout errors during service startup
+            # These timeouts control how long AIPerf waits for services to respond
+            # Increased values help in Kubernetes environments with resource constraints
+            - name: AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT
+              value: "600.0"  # 10 minutes for configuration (default: 300s)
+            - name: AIPERF_SERVICE_PROFILE_START_TIMEOUT
+              value: "120.0"  # 2 minutes for start profiling (default: 60s)
+            - name: AIPERF_DATASET_CONFIGURATION_TIMEOUT
+              value: "600.0"  # 10 minutes for dataset config (default: 300s)
             # Datadog API key for metrics export (optional)
             - name: DD_API_KEY
               valueFrom:

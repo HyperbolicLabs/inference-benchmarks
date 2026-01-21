@@ -127,15 +127,16 @@ def run_benchmark(
     env['TERM'] = 'dumb'  # Disable terminal capabilities
     env['CI'] = 'true'    # Signal CI/non-interactive environment
     env['NO_COLOR'] = '1'  # Disable ANSI color codes
-    # Force non-interactive mode
     env['PYTHONUNBUFFERED'] = '1'  # Disable Python output buffering
     
+    # Set AIPerf timeout environment variables to prevent timeout errors
+    # These timeouts control how long AIPerf waits for services to respond during startup
+    # Increase them for slower environments (e.g., Kubernetes with resource constraints)
+    env.setdefault('AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT', '600.0')  # 10 minutes for configuration
+    env.setdefault('AIPERF_SERVICE_PROFILE_START_TIMEOUT', '120.0')  # 2 minutes for start profiling
+    env.setdefault('AIPERF_DATASET_CONFIGURATION_TIMEOUT', '600.0')  # 10 minutes for dataset config
+    
     try:
-        # Run AIPerf with stdin redirected to /dev/null to prevent TUI initialization
-        # This is critical for running in Kubernetes/containers where there's no TTY
-        # Using stdout=subprocess.PIPE and stderr=subprocess.PIPE makes os.isatty() return False
-        # The environment variables (TERM=dumb, CI=true) should also help prevent TUI initialization
-        # Note: AIPerf may still try to use TUI, but with pipes it should fall back to non-interactive mode
         # Run AIPerf with --ui-type none to disable TUI completely
         # This is the proper way to run AIPerf in non-interactive environments (Kubernetes/containers)
         # With --ui-type none, AIPerf should exit cleanly without TUI-related errors
@@ -172,15 +173,38 @@ def run_benchmark(
         
     except subprocess.CalledProcessError as e:
         print(f"❌ Benchmark failed with exit code {e.returncode}")
-        print(f"Stdout: {e.stdout[:500] if e.stdout else '(empty)'}")
-        print(f"Stderr: {e.stderr[:500] if e.stderr else '(empty)'}")
+        
+        # Check if result files exist despite the error (partial success)
+        result_files = list(output_path.glob("*.json*"))
+        if result_files:
+            print(f"⚠️  Warning: Exit code {e.returncode}, but result files found:")
+            for f in result_files:
+                print(f"   - {f}")
+            print("   This may indicate a non-fatal error (e.g., timeout during cleanup)")
+        
+        # Show error output (truncated for readability)
+        stdout_preview = e.stdout[:1000] if e.stdout else '(empty)'
+        stderr_preview = e.stderr[:1000] if e.stderr else '(empty)'
+        print(f"\nStdout preview (first 1000 chars):\n{stdout_preview}")
+        if e.stderr and e.stderr != e.stdout:
+            print(f"\nStderr preview (first 1000 chars):\n{stderr_preview}")
+        
+        # Check for common error patterns
+        error_msg = e.stderr or e.stdout or "Unknown error"
+        if "TimeoutError" in error_msg or "timeout" in error_msg.lower():
+            print("\n💡 Tip: If you see timeout errors, try increasing:")
+            print("   - AIPERF_SERVICE_PROFILE_START_TIMEOUT")
+            print("   - AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT")
+            print("   - AIPERF_DATASET_CONFIGURATION_TIMEOUT")
+        
         return {
             "status": "error",
             "timestamp": datetime.utcnow().isoformat(),
-            "error": e.stderr or e.stdout or "Unknown error",
+            "error": error_msg,
             "exit_code": e.returncode,
             "stdout": e.stdout,
             "stderr": e.stderr,
+            "result_files": [str(f) for f in result_files] if result_files else None,
         }
     except FileNotFoundError:
         print("❌ AIPerf not found. Please install it with: pip install aiperf")
