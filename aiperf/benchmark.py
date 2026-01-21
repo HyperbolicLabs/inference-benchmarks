@@ -134,13 +134,13 @@ def run_benchmark(
         # This is critical for running in Kubernetes/containers where there's no TTY
         # capture_output=True sets stdout=subprocess.PIPE and stderr=subprocess.PIPE
         # which makes os.isatty() return False in the subprocess
-        # Wrap command in sh -c with explicit pipe through cat to break TTY detection
-        # This ensures AIPerf sees pipes, not a TTY, even if it checks at import time
-        wrapped_cmd = ['sh', '-c', f"{' '.join(cmd)} | cat"]
+        # Run AIPerf directly - capture_output=True already uses pipes which makes isatty() return False
+        # The environment variables (TERM=dumb, CI=true) should prevent TUI initialization
         result = subprocess.run(
-            wrapped_cmd,
+            cmd,
             stdin=subprocess.DEVNULL,  # Redirect stdin to prevent TUI
-            capture_output=True,       # Use pipes (not TTY) for stdout/stderr
+            stdout=subprocess.PIPE,    # Explicitly use PIPE (not TTY) for stdout
+            stderr=subprocess.PIPE,    # Explicitly use PIPE (not TTY) for stderr
             text=True,
             check=True,
             env=env  # Pass environment with TUI-disabling variables
@@ -168,12 +168,15 @@ def run_benchmark(
         
     except subprocess.CalledProcessError as e:
         print(f"❌ Benchmark failed with exit code {e.returncode}")
-        print(f"Error: {e.stderr}")
+        print(f"Stdout: {e.stdout[:500] if e.stdout else '(empty)'}")
+        print(f"Stderr: {e.stderr[:500] if e.stderr else '(empty)'}")
         return {
             "status": "error",
             "timestamp": datetime.utcnow().isoformat(),
-            "error": e.stderr,
+            "error": e.stderr or e.stdout or "Unknown error",
             "exit_code": e.returncode,
+            "stdout": e.stdout,
+            "stderr": e.stderr,
         }
     except FileNotFoundError:
         print("❌ AIPerf not found. Please install it with: pip install aiperf")
