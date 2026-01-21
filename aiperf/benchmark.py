@@ -136,31 +136,19 @@ def run_benchmark(
         # Using stdout=subprocess.PIPE and stderr=subprocess.PIPE makes os.isatty() return False
         # The environment variables (TERM=dumb, CI=true) should also help prevent TUI initialization
         # Note: AIPerf may still try to use TUI, but with pipes it should fall back to non-interactive mode
-        # Run AIPerf - don't use check=True initially to handle TUI cleanup errors
-        # AIPerf may exit with code 1 due to TUI cleanup failures even if benchmark succeeds
+        # Run AIPerf with --ui-type none to disable TUI completely
+        # This is the proper way to run AIPerf in non-interactive environments (Kubernetes/containers)
+        # With --ui-type none, AIPerf should exit cleanly without TUI-related errors
         result = subprocess.run(
             cmd,
-            stdin=subprocess.DEVNULL,  # Redirect stdin to prevent TUI
+            stdin=subprocess.DEVNULL,  # Redirect stdin to prevent any TUI detection
             stdout=subprocess.PIPE,    # Use PIPE (not TTY) - makes isatty() return False
             stderr=subprocess.STDOUT,  # Merge stderr into stdout to capture all output
             text=True,
-            check=False,  # Don't raise on non-zero exit - we'll check results
+            check=True,  # With --ui-type none, AIPerf should exit cleanly
             env=env,  # Pass environment with TUI-disabling variables
             timeout=None  # No timeout - let benchmark run for full duration
         )
-        
-        # Check if benchmark actually succeeded by looking for result files or success indicators
-        # AIPerf may exit with code 1 due to TUI cleanup issues, but benchmark might have completed
-        result_files = list(output_path.glob("*.json*"))
-        has_results = len(result_files) > 0
-        
-        # If we have results, consider it a success even if exit code is non-zero
-        # (TUI cleanup errors are non-fatal)
-        if result.returncode != 0 and not has_results:
-            # No results and non-zero exit - this is a real failure
-            raise subprocess.CalledProcessError(
-                result.returncode, cmd, result.stdout, None
-            )
         
         print("✅ Benchmark completed successfully")
         print(f"Results saved to: {output_dir}")
@@ -176,7 +164,7 @@ def run_benchmark(
         }
         
         # Try to find and parse result files
-        result_files = list(output_path.glob("*.json"))
+        result_files = list(output_path.glob("*.json*"))
         if result_files:
             results["result_files"] = [str(f) for f in result_files]
         
