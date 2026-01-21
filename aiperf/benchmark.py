@@ -133,7 +133,7 @@ def run_benchmark(
     # These timeouts control how long AIPerf waits for services to respond during startup
     # Increase them for slower environments (e.g., Kubernetes with resource constraints)
     env.setdefault('AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT', '600.0')  # 10 minutes for configuration
-    env.setdefault('AIPERF_SERVICE_PROFILE_START_TIMEOUT', '120.0')  # 2 minutes for start profiling
+    env.setdefault('AIPERF_SERVICE_PROFILE_START_TIMEOUT', '300.0')  # 5 minutes for start profiling
     env.setdefault('AIPERF_DATASET_CONFIGURATION_TIMEOUT', '600.0')  # 10 minutes for dataset config
     
     try:

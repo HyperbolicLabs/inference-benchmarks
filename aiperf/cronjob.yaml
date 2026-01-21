@@ -106,7 +106,7 @@ spec:
             - name: AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT
               value: "600.0"  # 10 minutes for configuration (default: 300s)
             - name: AIPERF_SERVICE_PROFILE_START_TIMEOUT
-              value: "120.0"  # 2 minutes for start profiling (default: 60s)
+              value: "300.0"  # 5 minutes for start profiling (default: 60s, increased for Kubernetes)
             - name: AIPERF_DATASET_CONFIGURATION_TIMEOUT
               value: "600.0"  # 10 minutes for dataset config (default: 300s)
             # Datadog API key for metrics export (optional)
