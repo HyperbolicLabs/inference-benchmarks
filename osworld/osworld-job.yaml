@@ -64,22 +64,32 @@ spec:
           # Wait for Docker daemon to be ready (check after socket exists)
           echo "Waiting for Docker daemon to be ready..."
           # Verify docker command is available
-          # docker.io installs docker CLI, create alias if needed
+          # docker.io may only install dockerd, not docker CLI
           if ! command -v docker >/dev/null 2>&1; then
-            echo "⚠️  docker not in PATH, checking alternatives..."
-            if [ -x /usr/bin/docker.io ]; then
-              # Create symlink or alias for docker command
-              ln -sf /usr/bin/docker.io /usr/bin/docker 2>/dev/null || true
-              export PATH="/usr/bin:$PATH"
-              echo "✅ Found docker.io, created symlink to /usr/bin/docker"
-            elif [ -x /usr/bin/docker ]; then
-              export PATH="/usr/bin:$PATH"
-              echo "✅ Found docker at /usr/bin/docker"
+            echo "⚠️  docker CLI not in PATH, checking alternatives..."
+            # Check common locations
+            DOCKER_CMD=""
+            for path in /usr/bin/docker /usr/local/bin/docker /usr/sbin/docker; do
+              if [ -x "$path" ]; then
+                DOCKER_CMD="$path"
+                break
+              fi
+            done
+            
+            if [ -n "$DOCKER_CMD" ]; then
+              export PATH="$(dirname $DOCKER_CMD):$PATH"
+              echo "✅ Found docker at $DOCKER_CMD, added to PATH"
             else
-              echo "❌ docker command not found"
+              echo "❌ docker CLI command not found"
               echo "PATH: $PATH"
               echo "Searching for docker binaries:"
-              find /usr -type f -name "docker*" -executable 2>/dev/null | head -5 || echo "docker not found anywhere"
+              find /usr -type f -name "docker*" -executable 2>/dev/null | head -10 || echo "docker not found anywhere"
+              echo ""
+              echo "⚠️  docker.io package may only include dockerd, not docker CLI"
+              echo "Attempting to use dockerd directly or install docker CLI..."
+              # Try to install docker CLI if possible
+              apt-get update && apt-get install -y --no-install-recommends docker-cli 2>&1 | head -5 || \
+              echo "Could not install docker-cli package"
               exit 1
             fi
           fi
