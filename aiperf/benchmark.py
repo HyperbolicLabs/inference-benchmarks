@@ -132,18 +132,18 @@ def run_benchmark(
     try:
         # Run AIPerf with stdin redirected to /dev/null to prevent TUI initialization
         # This is critical for running in Kubernetes/containers where there's no TTY
-        # capture_output=True sets stdout=subprocess.PIPE and stderr=subprocess.PIPE
-        # which makes os.isatty() return False in the subprocess
-        # Run AIPerf directly - capture_output=True already uses pipes which makes isatty() return False
-        # The environment variables (TERM=dumb, CI=true) should prevent TUI initialization
+        # Using stdout=subprocess.PIPE and stderr=subprocess.PIPE makes os.isatty() return False
+        # The environment variables (TERM=dumb, CI=true) should also help prevent TUI initialization
+        # Note: AIPerf may still try to use TUI, but with pipes it should fall back to non-interactive mode
         result = subprocess.run(
             cmd,
             stdin=subprocess.DEVNULL,  # Redirect stdin to prevent TUI
-            stdout=subprocess.PIPE,    # Explicitly use PIPE (not TTY) for stdout
-            stderr=subprocess.PIPE,    # Explicitly use PIPE (not TTY) for stderr
+            stdout=subprocess.PIPE,    # Use PIPE (not TTY) - makes isatty() return False
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout to capture all output
             text=True,
             check=True,
-            env=env  # Pass environment with TUI-disabling variables
+            env=env,  # Pass environment with TUI-disabling variables
+            timeout=None  # No timeout - let benchmark run for full duration
         )
         
         print("✅ Benchmark completed successfully")
