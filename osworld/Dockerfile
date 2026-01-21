@@ -29,6 +29,48 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     datadog \
     ddtrace
 
+# Pre-download and extract OSWorld VM image to save runtime (saves ~3-4 minutes per run)
+# VM image: 11.4GB Ubuntu.qcow2.zip from HuggingFace
+# This is done in builder stage to leverage build cache and avoid runtime download
+# OSWorld checks if Ubuntu.qcow2 exists before downloading, so pre-extracting it skips the download
+RUN pip install --no-cache-dir requests tqdm && \
+    mkdir -p /osworld/docker_vm_data && \
+    cd /osworld/docker_vm_data && \
+    echo "Pre-downloading OSWorld VM image (11.4GB)..." && \
+    python3 << 'EOF'
+import requests
+import zipfile
+import os
+from tqdm import tqdm
+
+url = 'https://huggingface.co/datasets/xlangai/ubuntu_osworld/resolve/main/Ubuntu.qcow2.zip'
+zip_path = 'Ubuntu.qcow2.zip'
+vm_path = 'Ubuntu.qcow2'
+
+if not os.path.exists(vm_path):
+    print(f'Downloading {url}...')
+    r = requests.get(url, stream=True)
+    r.raise_for_status()
+    total = int(r.headers.get('content-length', 0))
+    
+    with open(zip_path, 'wb') as f, tqdm(total=total, unit='B', unit_scale=True, desc='Download') as pbar:
+        for chunk in r.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+                pbar.update(len(chunk))
+    
+    print('Extracting...')
+    with zipfile.ZipFile(zip_path, 'r') as z:
+        z.extractall('.')
+    
+    os.remove(zip_path)
+    print(f'VM image ready: {vm_path}')
+    print(f'Size: {os.path.getsize(vm_path) / (1024**3):.2f} GB')
+else:
+    print(f'VM image already exists: {vm_path}')
+EOF
+    && rm -rf /tmp/* /var/tmp/* || true
+
 # Cleanup: Remove unnecessary files to reduce image size
 # Remove git history, tests, docs, and other development files
 # IMPORTANT: Preserve evaluation_examples/examples/ directory (contains task JSON files)
