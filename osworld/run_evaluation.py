@@ -114,9 +114,9 @@ def main():
     print("=" * 60)
     print()
     
-    # Build command
+    # Build command - use ddtrace-run with wrapper script for LLM Observability
     cmd = [
-        "python3", "run_multienv_qwen3vl.py",
+        "ddtrace-run", "python3", "run_with_ddtrace.py",
         "--model", model_name,
         "--provider_name", provider_name,
         "--num_envs", num_envs,

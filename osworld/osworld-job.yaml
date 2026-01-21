@@ -70,6 +70,20 @@ spec:
               key: api-key
               optional: true
         
+        # Datadog LLM Observability configuration
+        - name: DD_AGENT_HOST
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: DD_TRACE_AGENT_PORT
+          value: "8126"
+        - name: DD_LLMOBS_ENABLED
+          value: "1"
+        - name: DD_LLMOBS_ML_APP
+          value: "osworld-benchmark"
+        - name: DD_SITE
+          value: "us5.datadoghq.com"
+        
         # Desktop environment may require privileged access
         securityContext:
           privileged: true  # Required for Docker provider

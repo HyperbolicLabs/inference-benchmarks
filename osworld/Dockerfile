@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pyautogui \
     python-dotenv \
     datadog \
+    ddtrace \
     && pip install --no-cache-dir -e /osworld
 
 # Final stage - copy only what's needed
@@ -53,6 +54,10 @@ COPY common/ /osworld/common/
 # Copy evaluation runner script (from repo root)
 COPY osworld/run_evaluation.py /osworld/run_evaluation.py
 RUN chmod +x /osworld/run_evaluation.py
+
+# Copy ddtrace wrapper script (from repo root)
+COPY osworld/run_with_ddtrace.py /osworld/run_with_ddtrace.py
+RUN chmod +x /osworld/run_with_ddtrace.py
 
 # Create directories for results and logs
 RUN mkdir -p /osworld/results /osworld/logs /osworld/evaluation_examples
