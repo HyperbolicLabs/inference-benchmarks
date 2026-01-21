@@ -373,14 +373,49 @@ def main():
     print("=" * 60)
     print(json.dumps(results, indent=2))
     
-    # Send to Datadog if benchmark was successful (async)
-    if results.get("status") == "success":
+    # Validate benchmark results even if AIPerf exited with code 0
+    # AIPerf may exit with code 0 but fail to produce valid results
+    benchmark_failed = False
+    if results.get("status") != "success":
+        benchmark_failed = True
+        print(f"❌ Benchmark failed with status: {results.get('status')}")
+    else:
+        # Check if valid result files were produced
+        print()
+        print("=" * 60)
+        print("Validating Benchmark Results")
+        print("=" * 60)
+        
+        # Parse metrics to validate results
+        metrics = parse_aiperf_results(output_dir)
+        
+        # Check for required result file
+        result_file = Path(output_dir) / "profile_export_aiperf.json"
+        if not result_file.exists():
+            print(f"⚠️  Required result file not found: {result_file}")
+            benchmark_failed = True
+        elif not metrics:
+            print(f"⚠️  Result file exists but no metrics extracted")
+            print(f"   This may indicate the benchmark didn't complete successfully")
+            benchmark_failed = True
+        else:
+            # Check for critical metrics that should always be present
+            critical_metrics = ["request_latency_avg", "time_to_first_token_avg", "request_count_avg"]
+            missing_critical = [m for m in critical_metrics if m not in metrics]
+            if missing_critical:
+                print(f"⚠️  Missing critical metrics: {missing_critical}")
+                print(f"   This may indicate incomplete benchmark results")
+                # Don't fail on this - some metrics may be optional
+                # But log it for visibility
+    
+    # Send to Datadog if benchmark was successful and has valid results
+    if results.get("status") == "success" and not benchmark_failed:
         print()
         print("=" * 60)
         print("Sending Results to Datadog")
         print("=" * 60)
         
-        # Parse metrics
+        # Parse metrics (already parsed above, but parse again to ensure we have latest)
         metrics = parse_aiperf_results(output_dir)
         
         if metrics:
@@ -398,8 +433,17 @@ def main():
                 metric_prefix="inference.benchmark.aiperf",
                 base_tags=base_tags
             )
+        else:
+            print("⚠️  No metrics to send to Datadog")
     
     # Exit with appropriate code
+    if benchmark_failed:
+        print()
+        print("=" * 60)
+        print("❌ Benchmark Failed: Invalid or missing results")
+        print("=" * 60)
+        sys.exit(1)
+    
     sys.exit(0 if results.get("status") == "success" else 1)
 
 
