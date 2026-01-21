@@ -29,9 +29,49 @@ spec:
           set -e
           echo "=== OSWorld Evaluation ==="
           
+          # Start Docker daemon (required for Docker provider in containerd/cri-o clusters)
+          echo "Starting Docker daemon..."
+          
+          # Create Docker data directory
+          mkdir -p /var/lib/docker
+          
+          # Start dockerd in background with proper configuration
+          dockerd \
+            --host=unix:///var/run/docker.sock \
+            --storage-driver=vfs \
+            --data-root=/var/lib/docker \
+            > /tmp/dockerd.log 2>&1 &
+          DOCKERD_PID=$!
+          
+          # Wait for Docker daemon to be ready
+          echo "Waiting for Docker daemon to start..."
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker info >/dev/null 2>&1; then
+              echo "✅ Docker daemon is ready"
+              docker info | head -5
+              break
+            fi
+            sleep 1
+            timeout=$((timeout - 1))
+            if [ $((timeout % 10)) -eq 0 ]; then
+              echo "Still waiting... ($timeout seconds remaining)"
+            fi
+          done
+          
+          if [ $timeout -eq 0 ]; then
+            echo "❌ Docker daemon failed to start after 60 seconds"
+            echo "Docker daemon logs:"
+            cat /tmp/dockerd.log
+            exit 1
+          fi
+          
           # Run evaluation (includes Datadog export)
           cd /osworld
           python3 run_evaluation.py
+          
+          # Cleanup: stop Docker daemon
+          kill $DOCKERD_PID 2>/dev/null || true
         env:
         # Inference endpoint configuration
         - name: OPENAI_BASE_URL

@@ -31,7 +31,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Final stage - copy only what's needed
 FROM python:3.11-slim
 
-# Install runtime dependencies only
+# Install runtime dependencies including Docker (for Docker provider)
 # Note: libgl1-mesa-glx is not available in Debian Bookworm, use libgl1 instead
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -41,6 +41,7 @@ RUN apt-get update && \
     libxext6 \
     libxrender1 \
     libgomp1 \
+    docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy OSWorld installation from builder
