@@ -63,6 +63,13 @@ spec:
           
           # Wait for Docker daemon to be ready (check after socket exists)
           echo "Waiting for Docker daemon to be ready..."
+          # Verify docker command is available
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "❌ docker command not found in PATH"
+            echo "PATH: $PATH"
+            which docker || echo "docker not found"
+            exit 1
+          fi
           timeout=60
           while [ $timeout -gt 0 ]; do
             # Check if dockerd process is still running
