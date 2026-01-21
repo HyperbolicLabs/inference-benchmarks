@@ -66,11 +66,11 @@ spec:
                   name: cloudflare-access-credentials
                   key: client-secret
                   optional: true
-            # Concurrency: 20 provides production-like load testing
-            # This is optimal for continuous load testing without overwhelming the system
-            # For stress testing, use 50+
+            # Concurrency: Reduced to 10 to reduce number of workers and avoid PROFILE_START timeout
+            # Fewer workers = fewer services that need to respond to PROFILE_START command
+            # This helps avoid timeout issues where workers don't respond to PROFILE_START
             - name: CONCURRENCY
-              value: "20"
+              value: "10"
             # Use duration-based benchmarking (8 minutes) for sustained load
             # With 10-minute schedule, this creates 2-minute overlaps for continuous load
             - name: BENCHMARK_DURATION
