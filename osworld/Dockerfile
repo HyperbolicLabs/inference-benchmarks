@@ -53,16 +53,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     # Docker (for Docker provider support in containerd/cri-o clusters)
     # docker.io provides dockerd (daemon) but may not include docker CLI
-    # Try to install docker CLI separately if docker.io doesn't provide it
+    # Install docker.io for daemon, then try to get docker CLI
     docker.io \
     && (docker --version 2>/dev/null || \
-        (echo "docker CLI not found, installing docker-ce-cli..." && \
+        (echo "docker CLI not found, checking for docker-cli package..." && \
          apt-get update && \
-         apt-get install -y --no-install-recommends docker-ce-cli 2>/dev/null || \
-         echo "⚠️  Could not install docker-ce-cli, will check for alternatives")) \
+         (apt-get install -y --no-install-recommends docker-cli 2>/dev/null || \
+          echo "docker-cli not available in repos")) || true) \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
-    && (docker --version || (echo "Checking for docker in /usr/bin..." && ls -la /usr/bin/docker* 2>/dev/null || true))
+    && (docker --version 2>&1 || echo "⚠️  docker CLI not available after installation")
 
 # Copy Python packages from builder (single layer)
 # Only copy what's needed - site-packages and bin
