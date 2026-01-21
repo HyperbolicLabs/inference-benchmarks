@@ -37,7 +37,8 @@ RUN pip install --no-cache-dir requests tqdm && \
     mkdir -p /osworld/docker_vm_data && \
     cd /osworld/docker_vm_data && \
     echo "Pre-downloading OSWorld VM image (11.4GB)..." && \
-    python3 << 'EOF'
+    python3 << 'EOF' && \
+    rm -rf /tmp/* /var/tmp/* || true
 import requests
 import zipfile
 import os
@@ -69,7 +70,6 @@ if not os.path.exists(vm_path):
 else:
     print(f'VM image already exists: {vm_path}')
 EOF
-    && rm -rf /tmp/* /var/tmp/* || true
 
 # Cleanup: Remove unnecessary files to reduce image size
 # Remove git history, tests, docs, and other development files
