@@ -220,6 +220,21 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
     """
     Parse AIPerf JSON result files.
     
+    AIPerf exports metrics in profile_export_aiperf.json with structure:
+    {
+        "metrics": {
+            "metric_name": {
+                "stats": {
+                    "mean": ...,
+                    "p50": ...,
+                    "p95": ...,
+                    "p99": ...,
+                    ...
+                }
+            }
+        }
+    }
+    
     Args:
         result_dir: Directory containing JSON result files
     
@@ -228,62 +243,96 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
     """
     result_path = Path(result_dir)
     metrics = {}
-    json_files = list(result_path.glob("*.json"))
     
-    if not json_files:
-        print(f"⚠️  No JSON result files found in {result_dir}")
-        return metrics
+    # Look specifically for profile_export_aiperf.json (the aggregated stats file)
+    json_file = result_path / "profile_export_aiperf.json"
     
-    for json_file in json_files:
+    if not json_file.exists():
+        # Fallback: try any JSON file
+        json_files = list(result_path.glob("*.json"))
+        if not json_files:
+            print(f"⚠️  No JSON result files found in {result_dir}")
+            return metrics
+        json_file = json_files[0]
+    
+    try:
+        with open(json_file) as f:
+            data = json.load(f)
+        
+        if not isinstance(data, dict):
+            print(f"⚠️  Expected dict in {json_file}, got {type(data)}")
+            return metrics
+        
+        # AIPerf structure: data["metrics"][metric_name]["stats"][stat_name]
+        if "metrics" in data and isinstance(data["metrics"], dict):
+            for metric_name, metric_data in data["metrics"].items():
+                if isinstance(metric_data, dict) and "stats" in metric_data:
+                    stats = metric_data["stats"]
+                    if isinstance(stats, dict):
+                        # Extract common statistics
+                        if "mean" in stats:
+                            metrics[f"{metric_name}_mean"] = float(stats["mean"])
+                        if "p50" in stats:
+                            metrics[f"{metric_name}_p50"] = float(stats["p50"])
+                        if "p95" in stats:
+                            metrics[f"{metric_name}_p95"] = float(stats["p95"])
+                        if "p99" in stats:
+                            metrics[f"{metric_name}_p99"] = float(stats["p99"])
+                        if "min" in stats:
+                            metrics[f"{metric_name}_min"] = float(stats["min"])
+                        if "max" in stats:
+                            metrics[f"{metric_name}_max"] = float(stats["max"])
+        
+        # Also check for direct metric keys (legacy format support)
+        for key in ["latency_p50", "latency_p95", "latency_p99", "ttft", "ttft_ms", 
+                    "tokens_per_sec", "requests_per_sec", "throughput_tokens_per_sec", 
+                    "throughput_requests_per_sec"]:
+            if key in data:
+                try:
+                    metrics[key] = float(data[key])
+                except (ValueError, TypeError):
+                    pass
+        
+        # Check nested structures (legacy format)
+        if "latency" in data and isinstance(data["latency"], dict):
+            for pct in ["50", "95", "99"]:
+                key = f"latency_p{pct}"
+                if key in data["latency"]:
+                    try:
+                        metrics[key] = float(data["latency"][key])
+                    except (ValueError, TypeError):
+                        pass
+        
+        if "throughput" in data and isinstance(data["throughput"], dict):
+            if "tokens_per_sec" in data["throughput"]:
+                try:
+                    metrics["throughput_tokens_per_sec"] = float(data["throughput"]["tokens_per_sec"])
+                except (ValueError, TypeError):
+                    pass
+            if "requests_per_sec" in data["throughput"]:
+                try:
+                    metrics["throughput_requests_per_sec"] = float(data["throughput"]["requests_per_sec"])
+                except (ValueError, TypeError):
+                    pass
+                    
+    except json.JSONDecodeError as e:
+        print(f"⚠️  Invalid JSON in {json_file}: {e}")
+    except Exception as e:
+        print(f"⚠️  Failed to parse {json_file}: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    if metrics:
+        print(f"✅ Parsed {len(metrics)} metrics from {json_file.name}")
+    else:
+        print(f"⚠️  No metrics extracted from {json_file.name}")
+        # Debug: print structure
         try:
             with open(json_file) as f:
                 data = json.load(f)
-                
-            if isinstance(data, dict):
-                # Common AIPerf metrics - try multiple formats
-                # Format 1: Nested structure
-                if "latency" in data and isinstance(data["latency"], dict):
-                    metrics["latency_p50"] = data["latency"].get("p50", 0)
-                    metrics["latency_p95"] = data["latency"].get("p95", 0)
-                    metrics["latency_p99"] = data["latency"].get("p99", 0)
-                
-                # Format 2: Direct keys
-                for pct in ["50", "95", "99"]:
-                    key = f"latency_p{pct}"
-                    if key in data:
-                        metrics[key] = data[key]
-                
-                if "throughput" in data and isinstance(data["throughput"], dict):
-                    metrics["throughput_tokens_per_sec"] = data["throughput"].get("tokens_per_sec", 0)
-                    metrics["throughput_requests_per_sec"] = data["throughput"].get("requests_per_sec", 0)
-                
-                # Direct throughput keys
-                if "tokens_per_sec" in data:
-                    metrics["throughput_tokens_per_sec"] = data["tokens_per_sec"]
-                if "requests_per_sec" in data:
-                    metrics["throughput_requests_per_sec"] = data["requests_per_sec"]
-                
-                # Time to first token
-                for key in ["time_to_first_token", "ttft", "ttft_ms"]:
-                    if key in data:
-                        metrics["ttft_ms"] = data[key]
-                        break
-                
-                # Inter token latency
-                for key in ["inter_token_latency", "inter_token_latency_ms", "itl"]:
-                    if key in data:
-                        metrics["inter_token_latency_ms"] = data[key]
-                        break
-                
-                # Direct metric extraction (fallback)
-                for key in ["request_latency", "token_throughput", "request_throughput"]:
-                    if key in data:
-                        metrics[key] = data[key]
-                        
-        except json.JSONDecodeError as e:
-            print(f"⚠️  Invalid JSON in {json_file}: {e}")
-        except Exception as e:
-            print(f"⚠️  Failed to parse {json_file}: {e}")
+                print(f"   File structure keys: {list(data.keys())[:10]}")
+        except:
+            pass
     
     return metrics
 
