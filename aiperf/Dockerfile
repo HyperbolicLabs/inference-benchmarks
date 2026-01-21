@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 # Install AIPerf for performance benchmarking
-# Install Datadog for metrics export
+# Install Datadog for metrics export (Custom Metrics API)
 RUN pip install --no-cache-dir aiperf datadog
 
 WORKDIR /scripts
