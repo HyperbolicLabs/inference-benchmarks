@@ -63,20 +63,33 @@ spec:
           
           # Wait for Docker daemon to be ready (check after socket exists)
           echo "Waiting for Docker daemon to be ready..."
-          # Verify docker command is available (docker.io installs it as /usr/bin/docker)
+          # Verify docker command is available
+          # docker.io installs docker CLI, create alias if needed
           if ! command -v docker >/dev/null 2>&1; then
-            echo "⚠️  docker not in PATH, checking /usr/bin/docker..."
-            if [ -x /usr/bin/docker ]; then
+            echo "⚠️  docker not in PATH, checking alternatives..."
+            if [ -x /usr/bin/docker.io ]; then
+              # Create symlink or alias for docker command
+              ln -sf /usr/bin/docker.io /usr/bin/docker 2>/dev/null || true
               export PATH="/usr/bin:$PATH"
-              echo "✅ Found docker at /usr/bin/docker, added to PATH"
+              echo "✅ Found docker.io, created symlink to /usr/bin/docker"
+            elif [ -x /usr/bin/docker ]; then
+              export PATH="/usr/bin:$PATH"
+              echo "✅ Found docker at /usr/bin/docker"
             else
               echo "❌ docker command not found"
               echo "PATH: $PATH"
-              echo "Searching for docker:"
-              find /usr -name docker 2>/dev/null | head -5 || echo "docker not found anywhere"
+              echo "Searching for docker binaries:"
+              find /usr -type f -name "docker*" -executable 2>/dev/null | head -5 || echo "docker not found anywhere"
               exit 1
             fi
           fi
+          # Verify docker works
+          if ! docker --version >/dev/null 2>&1; then
+            echo "❌ docker command exists but doesn't work"
+            docker --version 2>&1 || true
+            exit 1
+          fi
+          echo "✅ Docker CLI verified: $(docker --version)"
           timeout=60
           while [ $timeout -gt 0 ]; do
             # Check if dockerd process is still running

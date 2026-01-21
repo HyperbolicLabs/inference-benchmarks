@@ -52,10 +52,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender1 \
     libgomp1 \
     # Docker (for Docker provider support in containerd/cri-o clusters)
+    # docker.io includes both dockerd (daemon) and docker (CLI client)
     docker.io \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
-    && which docker || (echo "docker not found, checking alternatives..." && find /usr -name docker 2>/dev/null | head -5 || true)
+    && ln -sf /usr/bin/docker.io /usr/bin/docker || true \
+    && docker --version || echo "⚠️  docker CLI not available, will use /usr/bin/docker.io"
 
 # Copy Python packages from builder (single layer)
 # Only copy what's needed - site-packages and bin
