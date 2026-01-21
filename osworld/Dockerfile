@@ -54,7 +54,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Docker (for Docker provider support in containerd/cri-o clusters)
     docker.io \
     && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && apt-get clean \
+    && which docker || (echo "docker not found, checking alternatives..." && find /usr -name docker 2>/dev/null | head -5 || true)
 
 # Copy Python packages from builder (single layer)
 # Only copy what's needed - site-packages and bin

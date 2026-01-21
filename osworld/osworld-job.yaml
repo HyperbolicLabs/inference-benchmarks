@@ -63,12 +63,19 @@ spec:
           
           # Wait for Docker daemon to be ready (check after socket exists)
           echo "Waiting for Docker daemon to be ready..."
-          # Verify docker command is available
+          # Verify docker command is available (docker.io installs it as /usr/bin/docker)
           if ! command -v docker >/dev/null 2>&1; then
-            echo "❌ docker command not found in PATH"
-            echo "PATH: $PATH"
-            which docker || echo "docker not found"
-            exit 1
+            echo "⚠️  docker not in PATH, checking /usr/bin/docker..."
+            if [ -x /usr/bin/docker ]; then
+              export PATH="/usr/bin:$PATH"
+              echo "✅ Found docker at /usr/bin/docker, added to PATH"
+            else
+              echo "❌ docker command not found"
+              echo "PATH: $PATH"
+              echo "Searching for docker:"
+              find /usr -name docker 2>/dev/null | head -5 || echo "docker not found anywhere"
+              exit 1
+            fi
           fi
           timeout=60
           while [ $timeout -gt 0 ]; do
