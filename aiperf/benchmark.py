@@ -263,13 +263,67 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
             print(f"⚠️  Expected dict in {json_file}, got {type(data)}")
             return metrics
         
-        # AIPerf structure: data["metrics"][metric_name]["stats"][stat_name]
+        # AIPerf structure: data[metric_name] = JsonMetricResult with stats directly inside
+        # Example: data["request_latency"] = {"unit": "ms", "avg": 123.4, "p50": 100.0, "p95": 200.0, "p99": 300.0, ...}
+        # Common metric field names in JsonExportData
+        metric_fields = [
+            "request_latency", "time_to_first_token", "time_to_second_token",
+            "inter_token_latency", "inter_chunk_latency",
+            "request_throughput", "output_token_throughput", "output_token_throughput_per_user",
+            "request_count", "good_request_count", "error_request_count",
+            "output_sequence_length", "input_sequence_length",
+            "output_token_count", "reasoning_token_count",
+            "goodput", "total_output_tokens", "total_reasoning_tokens",
+            "benchmark_duration", "total_isl", "total_osl", "error_isl", "total_error_isl"
+        ]
+        
+        for metric_field in metric_fields:
+            if metric_field in data and isinstance(data[metric_field], dict):
+                metric_data = data[metric_field]
+                # Extract stats from JsonMetricResult structure
+                if "avg" in metric_data:
+                    try:
+                        metrics[f"{metric_field}_avg"] = float(metric_data["avg"])
+                    except (ValueError, TypeError):
+                        pass
+                if "p50" in metric_data:
+                    try:
+                        metrics[f"{metric_field}_p50"] = float(metric_data["p50"])
+                    except (ValueError, TypeError):
+                        pass
+                if "p95" in metric_data:
+                    try:
+                        metrics[f"{metric_field}_p95"] = float(metric_data["p95"])
+                    except (ValueError, TypeError):
+                        pass
+                if "p99" in metric_data:
+                    try:
+                        metrics[f"{metric_field}_p99"] = float(metric_data["p99"])
+                    except (ValueError, TypeError):
+                        pass
+                if "min" in metric_data:
+                    try:
+                        metrics[f"{metric_field}_min"] = float(metric_data["min"])
+                    except (ValueError, TypeError):
+                        pass
+                if "max" in metric_data:
+                    try:
+                        metrics[f"{metric_field}_max"] = float(metric_data["max"])
+                    except (ValueError, TypeError):
+                        pass
+                if "std" in metric_data:
+                    try:
+                        metrics[f"{metric_field}_std"] = float(metric_data["std"])
+                    except (ValueError, TypeError):
+                        pass
+        
+        # Also check for nested metrics structure (alternative format)
         if "metrics" in data and isinstance(data["metrics"], dict):
             for metric_name, metric_data in data["metrics"].items():
-                if isinstance(metric_data, dict) and "stats" in metric_data:
-                    stats = metric_data["stats"]
-                    if isinstance(stats, dict):
-                        # Extract common statistics
+                if isinstance(metric_data, dict):
+                    # Check if stats are nested or direct
+                    if "stats" in metric_data and isinstance(metric_data["stats"], dict):
+                        stats = metric_data["stats"]
                         if "mean" in stats:
                             metrics[f"{metric_name}_mean"] = float(stats["mean"])
                         if "p50" in stats:
@@ -278,10 +332,14 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
                             metrics[f"{metric_name}_p95"] = float(stats["p95"])
                         if "p99" in stats:
                             metrics[f"{metric_name}_p99"] = float(stats["p99"])
-                        if "min" in stats:
-                            metrics[f"{metric_name}_min"] = float(stats["min"])
-                        if "max" in stats:
-                            metrics[f"{metric_name}_max"] = float(stats["max"])
+                    else:
+                        # Stats are directly in metric_data
+                        for stat in ["avg", "mean", "p50", "p95", "p99", "min", "max", "std"]:
+                            if stat in metric_data:
+                                try:
+                                    metrics[f"{metric_name}_{stat}"] = float(metric_data[stat])
+                                except (ValueError, TypeError):
+                                    pass
         
         # Also check for direct metric keys (legacy format support)
         for key in ["latency_p50", "latency_p95", "latency_p99", "ttft", "ttft_ms", 
