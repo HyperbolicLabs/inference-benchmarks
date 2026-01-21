@@ -134,8 +134,11 @@ def run_benchmark(
         # This is critical for running in Kubernetes/containers where there's no TTY
         # capture_output=True sets stdout=subprocess.PIPE and stderr=subprocess.PIPE
         # which makes os.isatty() return False in the subprocess
+        # Wrap command in sh -c with explicit pipe through cat to break TTY detection
+        # This ensures AIPerf sees pipes, not a TTY, even if it checks at import time
+        wrapped_cmd = ['sh', '-c', f"{' '.join(cmd)} | cat"]
         result = subprocess.run(
-            cmd,
+            wrapped_cmd,
             stdin=subprocess.DEVNULL,  # Redirect stdin to prevent TUI
             capture_output=True,       # Use pipes (not TTY) for stdout/stderr
             text=True,
