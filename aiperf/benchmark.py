@@ -222,24 +222,31 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
     
     AIPerf exports metrics in profile_export_aiperf.json with structure:
     {
-        "metrics": {
-            "metric_name": {
-                "stats": {
-                    "mean": ...,
-                    "p50": ...,
-                    "p95": ...,
-                    "p99": ...,
-                    ...
-                }
-            }
-        }
+        "schema_version": "1.0",
+        "aiperf_version": "...",
+        "benchmark_id": "...",
+        "request_latency": {
+            "unit": "ms",
+            "avg": 762.60,
+            "p50": 752.52,
+            "p95": 790.74,
+            "p99": 1013.11,
+            "min": 705.02,
+            "max": 1725.33,
+            "std": 44.68,
+            ...
+        },
+        "time_to_first_token": { ... },
+        ...
     }
+    
+    Each metric field is a JsonMetricResult object with: unit, avg, p1, p5, p10, p25, p50, p75, p90, p95, p99, min, max, std
     
     Args:
         result_dir: Directory containing JSON result files
     
     Returns:
-        Dictionary of metric_name -> value
+        Dictionary of metric_name_stat -> value (e.g., "request_latency_avg", "time_to_first_token_p99")
     """
     result_path = Path(result_dir)
     metrics = {}
@@ -248,12 +255,8 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
     json_file = result_path / "profile_export_aiperf.json"
     
     if not json_file.exists():
-        # Fallback: try any JSON file
-        json_files = list(result_path.glob("*.json"))
-        if not json_files:
-            print(f"⚠️  No JSON result files found in {result_dir}")
-            return metrics
-        json_file = json_files[0]
+        print(f"⚠️  No profile_export_aiperf.json found in {result_dir}")
+        return metrics
     
     try:
         with open(json_file) as f:
@@ -263,94 +266,33 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
             print(f"⚠️  Expected dict in {json_file}, got {type(data)}")
             return metrics
         
-        # AIPerf structure: data[metric_name] = JsonMetricResult with stats directly inside
-        # Example: data["request_latency"] = {"unit": "ms", "avg": 123.4, "p50": 100.0, "p95": 200.0, "p99": 300.0, ...}
-        # Common metric field names in JsonExportData
-        metric_fields = [
-            "request_latency", "time_to_first_token", "time_to_second_token",
-            "inter_token_latency", "inter_chunk_latency",
-            "request_throughput", "output_token_throughput", "output_token_throughput_per_user",
-            "request_count", "good_request_count", "error_request_count",
-            "output_sequence_length", "input_sequence_length",
-            "output_token_count", "reasoning_token_count",
-            "goodput", "total_output_tokens", "total_reasoning_tokens",
-            "benchmark_duration", "total_isl", "total_osl", "error_isl", "total_error_isl"
-        ]
+        # AIPerf JsonExportData structure: metric fields are top-level keys containing JsonMetricResult objects
+        # JsonMetricResult has: unit, avg, p1, p5, p10, p25, p50, p75, p90, p95, p99, min, max, std
         
-        for metric_field in metric_fields:
-            if metric_field in data:
-                metric_data = data[metric_field]
-                # Skip if None (JsonExportData fields can be None)
-                if metric_data is None:
-                    continue
-                # Must be a dict (JsonMetricResult)
-                if not isinstance(metric_data, dict):
-                    continue
-                
-                # Extract stats from JsonMetricResult structure
-                # JsonMetricResult has: unit, avg, p50, p95, p99, min, max, std, etc.
-                for stat in ["avg", "p50", "p95", "p99", "min", "max", "std"]:
-                    if stat in metric_data and metric_data[stat] is not None:
+        # Known non-metric fields to skip
+        non_metric_fields = {
+            "schema_version", "aiperf_version", "benchmark_id", "input_config",
+            "was_cancelled", "error_summary", "start_time", "end_time", "telemetry_data"
+        }
+        
+        # All possible stat fields in JsonMetricResult
+        stat_fields = ["avg", "p1", "p5", "p10", "p25", "p50", "p75", "p90", "p95", "p99", "min", "max", "std"]
+        
+        # Extract metrics from all top-level keys that are JsonMetricResult objects
+        for key, value in data.items():
+            # Skip known non-metric fields
+            if key in non_metric_fields:
+                continue
+            
+            # Check if this is a JsonMetricResult (has "unit" field)
+            if isinstance(value, dict) and "unit" in value:
+                # Extract all available stats from this JsonMetricResult
+                for stat in stat_fields:
+                    if stat in value and value[stat] is not None:
                         try:
-                            metrics[f"{metric_field}_{stat}"] = float(metric_data[stat])
+                            metrics[f"{key}_{stat}"] = float(value[stat])
                         except (ValueError, TypeError):
                             pass
-        
-        # Also check for nested metrics structure (alternative format)
-        if "metrics" in data and isinstance(data["metrics"], dict):
-            for metric_name, metric_data in data["metrics"].items():
-                if isinstance(metric_data, dict):
-                    # Check if stats are nested or direct
-                    if "stats" in metric_data and isinstance(metric_data["stats"], dict):
-                        stats = metric_data["stats"]
-                        if "mean" in stats:
-                            metrics[f"{metric_name}_mean"] = float(stats["mean"])
-                        if "p50" in stats:
-                            metrics[f"{metric_name}_p50"] = float(stats["p50"])
-                        if "p95" in stats:
-                            metrics[f"{metric_name}_p95"] = float(stats["p95"])
-                        if "p99" in stats:
-                            metrics[f"{metric_name}_p99"] = float(stats["p99"])
-                    else:
-                        # Stats are directly in metric_data
-                        for stat in ["avg", "mean", "p50", "p95", "p99", "min", "max", "std"]:
-                            if stat in metric_data:
-                                try:
-                                    metrics[f"{metric_name}_{stat}"] = float(metric_data[stat])
-                                except (ValueError, TypeError):
-                                    pass
-        
-        # Also check for direct metric keys (legacy format support)
-        for key in ["latency_p50", "latency_p95", "latency_p99", "ttft", "ttft_ms", 
-                    "tokens_per_sec", "requests_per_sec", "throughput_tokens_per_sec", 
-                    "throughput_requests_per_sec"]:
-            if key in data:
-                try:
-                    metrics[key] = float(data[key])
-                except (ValueError, TypeError):
-                    pass
-        
-        # Check nested structures (legacy format)
-        if "latency" in data and isinstance(data["latency"], dict):
-            for pct in ["50", "95", "99"]:
-                key = f"latency_p{pct}"
-                if key in data["latency"]:
-                    try:
-                        metrics[key] = float(data["latency"][key])
-                    except (ValueError, TypeError):
-                        pass
-        
-        if "throughput" in data and isinstance(data["throughput"], dict):
-            if "tokens_per_sec" in data["throughput"]:
-                try:
-                    metrics["throughput_tokens_per_sec"] = float(data["throughput"]["tokens_per_sec"])
-                except (ValueError, TypeError):
-                    pass
-            if "requests_per_sec" in data["throughput"]:
-                try:
-                    metrics["throughput_requests_per_sec"] = float(data["throughput"]["requests_per_sec"])
-                except (ValueError, TypeError):
-                    pass
                     
     except json.JSONDecodeError as e:
         print(f"⚠️  Invalid JSON in {json_file}: {e}")
@@ -367,9 +309,14 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
         try:
             with open(json_file) as f:
                 data = json.load(f)
-                print(f"   File structure keys: {list(data.keys())[:10]}")
-        except:
-            pass
+                print(f"   File structure keys: {list(data.keys())[:20]}")
+                # Show sample of a metric structure if available
+                for key in ["request_latency", "time_to_first_token", "request_throughput"]:
+                    if key in data and isinstance(data[key], dict):
+                        print(f"   Sample {key} structure: {dict(list(data[key].items())[:5])}")
+                        break
+        except Exception as e:
+            print(f"   Error reading file for debug: {e}")
     
     return metrics
 
