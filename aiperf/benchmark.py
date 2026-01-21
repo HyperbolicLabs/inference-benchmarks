@@ -89,6 +89,7 @@ def run_benchmark(
         "--concurrency", str(concurrency),
         "--output-artifact-dir", output_dir,
         "--ui-type", "none",  # Disable TUI for non-interactive environments (Kubernetes/containers)
+        "--no-server-metrics",  # Disable server metrics to avoid timeout on unreachable Prometheus endpoints (known issue in v0.4.0+)
     ]
     
     # AIPerf doesn't allow both --request-count and --benchmark-duration together
