@@ -152,10 +152,14 @@ def send_metrics_async(
             batch_size=batch_size
         )
     
-    thread = threading.Thread(target=_send, daemon=True)
+    # Use non-daemon thread so it completes before pod exits
+    # This ensures metrics are sent and we see success/failure messages in logs
+    thread = threading.Thread(target=_send, daemon=False)
     thread.start()
-    # Give it a moment to start
-    time.sleep(0.5)
+    # Wait for thread to complete (with timeout to prevent hanging)
+    thread.join(timeout=30)  # Wait up to 30 seconds for metrics to be sent
+    if thread.is_alive():
+        print("⚠️  Metrics sending thread still running after 30s timeout, continuing...")
 
 
 def send_metrics_to_llm_observability(
