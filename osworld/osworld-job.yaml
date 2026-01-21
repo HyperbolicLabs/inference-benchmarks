@@ -57,6 +57,10 @@ spec:
             exit 1
           fi
           
+          echo "✅ Docker socket created: $(ls -la /var/run/docker.sock)"
+          # Give Docker a moment to fully initialize after socket creation
+          sleep 3
+          
           # Wait for Docker daemon to be ready (check after socket exists)
           echo "Waiting for Docker daemon to be ready..."
           timeout=60
@@ -67,17 +71,21 @@ spec:
               cat /tmp/dockerd.log
               exit 1
             fi
-            # Try to connect to Docker
-            if docker info >/dev/null 2>&1; then
+            # Try to connect to Docker and check for success
+            docker_output=$(docker info 2>&1)
+            docker_exit=$?
+            if [ $docker_exit -eq 0 ] && echo "$docker_output" | grep -q "Server Version"; then
               echo "✅ Docker daemon is ready"
               docker info | head -5
               break
             fi
-            sleep 2
-            timeout=$((timeout - 2))
+            # Log the error every 10 seconds for debugging
             if [ $((timeout % 10)) -eq 0 ]; then
               echo "Still waiting... ($timeout seconds remaining)"
+              echo "Docker info error: $docker_output" | head -3
             fi
+            sleep 2
+            timeout=$((timeout - 2))
           done
           
           if [ $timeout -eq 0 ]; then
