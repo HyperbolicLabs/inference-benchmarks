@@ -161,6 +161,20 @@ def main():
         # Parse metrics
         metrics = parse_osworld_results(result_dir)
         
+        # Check if evaluation actually succeeded
+        # OSWorld may exit with code 0 even if all tasks failed (it's resilient)
+        # So we need to check the actual results
+        evaluation_failed = False
+        if not metrics:
+            print("⚠️  No metrics found - evaluation may have failed")
+            evaluation_failed = True
+        elif metrics.get("total_tasks", 0) == 0:
+            print("⚠️  No tasks completed - evaluation failed")
+            evaluation_failed = True
+        elif metrics.get("success_rate", 0) == 0 and metrics.get("average_score", 0) == 0:
+            print("⚠️  All tasks failed (success_rate=0, average_score=0) - evaluation failed")
+            evaluation_failed = True
+        
         if metrics:
             # Prepare tags
             base_tags = [
@@ -176,6 +190,14 @@ def main():
                 metric_prefix="inference.benchmark.osworld",
                 base_tags=base_tags
             )
+        
+        # Exit with error code if evaluation failed
+        if evaluation_failed:
+            print()
+            print("=" * 60)
+            print("❌ Evaluation Failed: No successful tasks completed")
+            print("=" * 60)
+            sys.exit(1)
         
         sys.exit(0)
         
