@@ -32,11 +32,15 @@ def initialize_datadog() -> bool:
         print("⚠️  DD_API_KEY not set, skipping Datadog export")
         return False
     
+    # Configure API host based on DD_SITE (defaults to US site)
+    site = os.getenv("DD_SITE", "datadoghq.com")
+    api_host = f"https://api.{site}"
+    
     app_key = os.getenv("DD_APP_KEY")
     if app_key:
-        initialize(api_key=api_key, app_key=app_key)
+        initialize(api_key=api_key, app_key=app_key, api_host=api_host)
     else:
-        initialize(api_key=api_key)
+        initialize(api_key=api_key, api_host=api_host)
     
     return True
 

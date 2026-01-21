@@ -116,6 +116,9 @@ spec:
                   name: datadog-api-key
                   key: api-key
                   optional: true
+            # Datadog site configuration (defaults to US if not set)
+            - name: DD_SITE
+              value: "us5.datadoghq.com"  # Matches cluster Datadog configuration
             volumeMounts:
             - name: results
               mountPath: /tmp/results
