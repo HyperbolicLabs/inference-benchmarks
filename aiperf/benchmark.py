@@ -278,44 +278,23 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
         ]
         
         for metric_field in metric_fields:
-            if metric_field in data and isinstance(data[metric_field], dict):
+            if metric_field in data:
                 metric_data = data[metric_field]
+                # Skip if None (JsonExportData fields can be None)
+                if metric_data is None:
+                    continue
+                # Must be a dict (JsonMetricResult)
+                if not isinstance(metric_data, dict):
+                    continue
+                
                 # Extract stats from JsonMetricResult structure
-                if "avg" in metric_data:
-                    try:
-                        metrics[f"{metric_field}_avg"] = float(metric_data["avg"])
-                    except (ValueError, TypeError):
-                        pass
-                if "p50" in metric_data:
-                    try:
-                        metrics[f"{metric_field}_p50"] = float(metric_data["p50"])
-                    except (ValueError, TypeError):
-                        pass
-                if "p95" in metric_data:
-                    try:
-                        metrics[f"{metric_field}_p95"] = float(metric_data["p95"])
-                    except (ValueError, TypeError):
-                        pass
-                if "p99" in metric_data:
-                    try:
-                        metrics[f"{metric_field}_p99"] = float(metric_data["p99"])
-                    except (ValueError, TypeError):
-                        pass
-                if "min" in metric_data:
-                    try:
-                        metrics[f"{metric_field}_min"] = float(metric_data["min"])
-                    except (ValueError, TypeError):
-                        pass
-                if "max" in metric_data:
-                    try:
-                        metrics[f"{metric_field}_max"] = float(metric_data["max"])
-                    except (ValueError, TypeError):
-                        pass
-                if "std" in metric_data:
-                    try:
-                        metrics[f"{metric_field}_std"] = float(metric_data["std"])
-                    except (ValueError, TypeError):
-                        pass
+                # JsonMetricResult has: unit, avg, p50, p95, p99, min, max, std, etc.
+                for stat in ["avg", "p50", "p95", "p99", "min", "max", "std"]:
+                    if stat in metric_data and metric_data[stat] is not None:
+                        try:
+                            metrics[f"{metric_field}_{stat}"] = float(metric_data[stat])
+                        except (ValueError, TypeError):
+                            pass
         
         # Also check for nested metrics structure (alternative format)
         if "metrics" in data and isinstance(data["metrics"], dict):
