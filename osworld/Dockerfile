@@ -31,12 +31,15 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
 
 # Cleanup: Remove unnecessary files to reduce image size
 # Remove git history, tests, docs, and other development files
+# IMPORTANT: Preserve evaluation_examples/examples/ directory (contains task JSON files)
 RUN find /osworld -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true && \
     find /osworld -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
     find /osworld -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true && \
     find /osworld -type f -name "*.pyc" -delete 2>/dev/null || true && \
     find /osworld -type f -name "*.pyo" -delete 2>/dev/null || true && \
-    find /osworld -type d \( -name "tests" -o -name "test" -o -name "docs" -o -name "examples" -o -name ".github" \) -exec rm -rf {} + 2>/dev/null || true
+    find /osworld -type d \( -name "tests" -o -name "test" -o -name "docs" -o -name ".github" \) -exec rm -rf {} + 2>/dev/null || true && \
+    # Remove examples directories but NOT evaluation_examples/examples/ (contains task files)
+    find /osworld -type d -name "examples" ! -path "*/evaluation_examples/examples*" -exec rm -rf {} + 2>/dev/null || true
 
 # Final stage - minimal runtime image
 FROM python:3.11-slim
