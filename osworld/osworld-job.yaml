@@ -161,6 +161,16 @@ spec:
                 exit 1
               fi
               
+              # Create unique result directory for this job run (prevents reusing previous results)
+              # Use timestamp to ensure uniqueness
+              RUN_ID=$(date +%Y%m%d-%H%M%S)
+              UNIQUE_RESULT_DIR="/osworld/results/run-${RUN_ID}"
+              echo "Using unique result directory: ${UNIQUE_RESULT_DIR}"
+              mkdir -p "${UNIQUE_RESULT_DIR}"
+              
+              # Export unique result directory for run_evaluation.py
+              export RESULT_DIR="${UNIQUE_RESULT_DIR}"
+              
               # Run evaluation (includes Datadog export)
               cd /osworld
               python3 run_evaluation.py
@@ -190,7 +200,7 @@ spec:
             - name: TEST_META_PATH
               value: "evaluation_examples/test_nogdrive.json"
             - name: RESULT_DIR
-              value: "/osworld/results"
+              value: "/osworld/results"  # Base directory - will be overridden by unique subdirectory per run
             - name: ACTION_SPACE
               value: "pyautogui"
             - name: OBSERVATION_TYPE
