@@ -56,6 +56,26 @@ with open(file_path, 'w') as f:
 print("✅ Patched lib_run_single.py to handle agents without vm_ip support")
 EOF
 
+# Increase Docker provider lock timeout to reduce file lock contention with parallel environments
+# Default is 10 seconds, increase to 60 seconds (same as VMware/VirtualBox providers)
+RUN python3 << 'EOF'
+file_path = '/osworld/desktop_env/providers/docker/provider.py'
+with open(file_path, 'r') as f:
+    content = f.read()
+
+# Replace LOCK_TIMEOUT = 10 with LOCK_TIMEOUT = 60
+import re
+content = re.sub(
+    r'LOCK_TIMEOUT\s*=\s*\d+',
+    'LOCK_TIMEOUT = 60',
+    content
+)
+
+with open(file_path, 'w') as f:
+    f.write(content)
+print("✅ Patched Docker provider: Increased LOCK_TIMEOUT from 10 to 60 seconds")
+EOF
+
 # Install Python dependencies in optimal order to avoid conflicts:
 # 1. Upgrade pip (changes rarely)
 # 2. Install OSWorld FIRST - let it resolve all its dependencies (avoids uninstall/reinstall)
