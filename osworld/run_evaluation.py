@@ -141,11 +141,77 @@ def main():
     print()
     
     try:
-        result = subprocess.run(
+        # Run evaluation with real-time output and capture to check for "Total tasks: 0"
+        import sys as sys_module
+        captured_output = []
+        zero_tasks_detected = False
+        
+        process = subprocess.Popen(
             cmd,
             cwd="/osworld",
-            check=True
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
         )
+        
+        # Stream output in real-time and check for "Total tasks: 0"
+        for line in process.stdout:
+            line = line.rstrip()
+            print(line)
+            captured_output.append(line)
+            if "Total tasks: 0" in line:
+                zero_tasks_detected = True
+        
+        # Wait for process to complete
+        returncode = process.wait()
+        
+        if returncode != 0:
+            raise subprocess.CalledProcessError(returncode, cmd)
+        
+        # Check if 0 tasks were detected
+        if zero_tasks_detected:
+            # Check if this is because all tasks are already complete
+            # OSWorld filters out tasks that already have result.txt files
+            metrics = parse_osworld_results(result_dir)
+            
+            if metrics and metrics.get("total_tasks", 0) > 0:
+                # Results exist - all tasks were already completed in previous runs
+                print()
+                print("=" * 60)
+                print("✅ All tasks already completed")
+                print("=" * 60)
+                print(f"Found {metrics.get('total_tasks', 0)} completed tasks from previous runs")
+                print(f"Success rate: {metrics.get('success_rate', 0):.1f}%")
+                print("No new tasks to run - evaluation passed")
+                
+                # Send metrics to Datadog
+                if metrics:
+                    base_tags = [
+                        f"model:{model_name}",
+                        f"domain:{domain}",
+                        "benchmark:osworld",
+                        "cluster_name:inference-cluster"
+                    ]
+                    send_metrics_async(
+                        metrics=metrics,
+                        metric_prefix="inference.benchmark.osworld",
+                        base_tags=base_tags
+                    )
+                
+                sys.exit(0)
+            else:
+                # No results exist - this is a real failure (no tasks in test file)
+                print()
+                print("=" * 60)
+                print("❌ Evaluation Failed: No tasks loaded from test file")
+                print("=" * 60)
+                print("OSWorld reported 'Total tasks: 0' and no previous results found")
+                print("Possible causes:")
+                print("  1. Test file is empty or missing")
+                print("  2. Test file path is incorrect")
+                print("  3. All tasks filtered out but no results exist (unexpected)")
+                sys.exit(1)
         
         print()
         print("=" * 60)
@@ -162,18 +228,39 @@ def main():
         metrics = parse_osworld_results(result_dir)
         
         # Check if evaluation actually succeeded
-        # OSWorld may exit with code 0 even if all tasks failed (it's resilient)
-        # So we need to check the actual results
+        # OSWorld always exits with code 0, so we need to check the actual results
+        # Pass criteria (based on OSWorld behavior):
+        # 1. All tasks must complete (all tasks processed, queue empty)
+        # 2. Not all tasks failed (at least some success - distinguishes from complete failure)
         evaluation_failed = False
+        
+        # Check: If metrics dict is empty or has no total_tasks, evaluation failed
         if not metrics:
             print("⚠️  No metrics found - evaluation may have failed")
+            evaluation_failed = True
+        elif "total_tasks" not in metrics:
+            # No total_tasks in metrics means no result.txt files were found
+            # This could mean 0 tasks were loaded OR all tasks failed before writing results
+            # Check for partial results - if found, tasks were attempted but failed
+            if "partial_results" in metrics:
+                print(f"⚠️  Found {metrics['partial_results']} partial results but no completed tasks - evaluation failed")
+            else:
+                print("⚠️  No tasks completed and no partial results - evaluation failed (likely 0 tasks loaded)")
             evaluation_failed = True
         elif metrics.get("total_tasks", 0) == 0:
             print("⚠️  No tasks completed - evaluation failed")
             evaluation_failed = True
         elif metrics.get("success_rate", 0) == 0 and metrics.get("average_score", 0) == 0:
-            print("⚠️  All tasks failed (success_rate=0, average_score=0) - evaluation failed")
+            # All tasks failed (100% failure rate) - this indicates a problem
+            # Note: We don't require 100% success, but 0% success suggests a systemic issue
+            print(f"⚠️  All {metrics.get('total_tasks', 0)} tasks failed (success_rate=0%, average_score=0) - evaluation failed")
             evaluation_failed = True
+        else:
+            # Evaluation passed: tasks completed and at least some succeeded
+            success_rate = metrics.get("success_rate", 0)
+            total_tasks = metrics.get("total_tasks", 0)
+            successful_tasks = metrics.get("successful_tasks", 0)
+            print(f"✅ Evaluation passed: {successful_tasks}/{total_tasks} tasks succeeded ({success_rate:.1f}% success rate)")
         
         if metrics:
             # Prepare tags
