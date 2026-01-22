@@ -50,11 +50,23 @@ spec:
               # Create Docker data directory and socket directory
               mkdir -p /var/lib/docker /var/run
               
-              # Start dockerd in background with proper configuration
+              # Start dockerd in background with optimized configuration
+              # Try overlay2 first (faster), fallback to vfs if not available
+              STORAGE_DRIVER="overlay2"
+              if ! modprobe overlay 2>/dev/null; then
+                echo "⚠️  overlay2 not available, falling back to vfs"
+                STORAGE_DRIVER="vfs"
+              fi
+              
               dockerd \
                 --host=unix:///var/run/docker.sock \
-                --storage-driver=vfs \
+                --storage-driver=${STORAGE_DRIVER} \
                 --data-root=/var/lib/docker \
+                --log-driver=json-file \
+                --log-opt=max-size=10m \
+                --log-opt=max-file=3 \
+                --default-ulimit nofile=65536:65536 \
+                --default-ulimit nproc=32768:32768 \
                 > /tmp/dockerd.log 2>&1 &
               DOCKERD_PID=$!
               
@@ -168,11 +180,11 @@ spec:
             - name: PROVIDER_NAME
               value: "docker"  # Options: docker, aws, virtualbox, vmware, azure, aliyun
             - name: NUM_ENVS
-              value: "1"  # Number of parallel environments
+              value: "20"  # Number of parallel environments (uses ~80 CPU cores, leaves headroom)
             - name: MAX_STEPS
               value: "15"  # Maximum steps per task
             - name: MAX_TOKENS
-              value: "32768"  # Maximum tokens per request
+              value: "32768"  # Maximum tokens per request (default for Qwen3VL)
             - name: DOMAIN
               value: "all"  # Domain to test (or specific domain)
             - name: TEST_META_PATH
@@ -214,6 +226,10 @@ spec:
               value: "1"
             - name: PYTHONUNBUFFERED
               value: "1"
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"  # Skip .pyc files for faster startup
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"  # Prevent tokenizer warnings
             
             # Desktop environment may require privileged access
             securityContext:
@@ -233,12 +249,13 @@ spec:
             # Docker socket mount removed - cluster uses containerd/cri-o
             # OSWorld will need to use a different provider or run in privileged mode
             resources:
+              # Updated for 20 parallel environments (20 × 4 cores = 80, 20 × 4GB = 80GB)
               requests:
-                memory: "8Gi"
-                cpu: "2000m"
+                memory: "80Gi"    # 20 envs × 4GB = 80GB minimum
+                cpu: "80"         # 20 envs × 4 cores = 80 cores minimum
               limits:
-                memory: "16Gi"
-                cpu: "4000m"
+                memory: "160Gi"   # 2× request for headroom and Docker overhead
+                cpu: "160"        # 2× request for headroom
           volumes:
           - name: results
             persistentVolumeClaim:
