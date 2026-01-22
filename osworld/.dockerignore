@@ -1,0 +1,67 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+README*
+LICENSE
+CONTRIBUTING*
+CHANGELOG*
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Test files
+tests/
+test/
+*.test.py
+*_test.py
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Results (will be mounted at runtime)
+results/
+*.mp4
+*.png
+*.jpg
+*.jpeg
+
+# Large files that shouldn't be in build context
+*.qcow2
+*.qcow2.zip
+docker_vm_data/

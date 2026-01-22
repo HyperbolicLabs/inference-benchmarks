@@ -16,7 +16,9 @@ ARG OSWORLD_VERSION=main
 RUN git clone --depth 1 --branch ${OSWORLD_VERSION} https://github.com/xlang-ai/OSWorld.git /osworld 2>&1 || \
     (echo "Shallow clone failed, trying full clone..." && \
      git clone https://github.com/xlang-ai/OSWorld.git /osworld && \
-     cd /osworld && git checkout ${OSWORLD_VERSION} 2>/dev/null || git checkout -b ${OSWORLD_VERSION} || true)
+     cd /osworld && git checkout ${OSWORLD_VERSION} 2>/dev/null || git checkout -b ${OSWORLD_VERSION} || true) && \
+    # Remove git history immediately to save space
+    rm -rf /osworld/.git /osworld/.github 2>/dev/null || true
 
 # Fix lib_run_single.py to handle agents that don't support vm_ip parameter
 # Update the fallback pattern to gracefully handle different agent reset() signatures
@@ -63,18 +65,21 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -e /osworld && \
     pip install --no-cache-dir \
     datadog \
-    ddtrace
+    ddtrace && \
+    # Clean up pip cache and temporary files immediately
+    pip cache purge 2>/dev/null || true && \
+    rm -rf /tmp/* /var/tmp/* /root/.cache/pip 2>/dev/null || true
 
 # Pre-download and extract OSWorld VM image to save runtime (saves ~3-4 minutes per run)
 # VM image: 11.4GB Ubuntu.qcow2.zip from HuggingFace
 # This is done in builder stage to leverage build cache and avoid runtime download
 # OSWorld checks if Ubuntu.qcow2 exists before downloading, so pre-extracting it skips the download
-RUN pip install --no-cache-dir requests tqdm && \
+# Note: This is the largest part of the image (~11.4GB), but required for runtime
+RUN pip install --no-cache-dir --no-warn-script-location requests tqdm && \
     mkdir -p /osworld/docker_vm_data && \
     cd /osworld/docker_vm_data && \
     echo "Pre-downloading OSWorld VM image (11.4GB)..." && \
-    python3 << 'EOF' && \
-    rm -rf /tmp/* /var/tmp/* || true
+    python3 << 'EOF'
 import requests
 import zipfile
 import os
@@ -106,18 +111,33 @@ if not os.path.exists(vm_path):
 else:
     print(f'VM image already exists: {vm_path}')
 EOF
+    # Clean up download tools and temporary files immediately after VM download
+    # Uninstall packages to save space (they're only needed for download)
+    pip uninstall -y requests tqdm 2>/dev/null || true && \
+    pip cache purge 2>/dev/null || true && \
+    # Aggressive cleanup of all temporary and cache files
+    rm -rf /tmp/* /var/tmp/* /root/.cache/* /root/.local/share/pip 2>/dev/null || true && \
+    # Clean up any Python bytecode that might have been generated
+    find /osworld -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    find /osworld -type f -name "*.pyc" -delete 2>/dev/null || true
 
 # Cleanup: Remove unnecessary files to reduce image size
 # Remove git history, tests, docs, and other development files
 # IMPORTANT: Preserve evaluation_examples/examples/ directory (contains task JSON files)
-RUN find /osworld -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true && \
-    find /osworld -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+RUN find /osworld -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
     find /osworld -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true && \
     find /osworld -type f -name "*.pyc" -delete 2>/dev/null || true && \
     find /osworld -type f -name "*.pyo" -delete 2>/dev/null || true && \
     find /osworld -type d \( -name "tests" -o -name "test" -o -name "docs" -o -name ".github" \) -exec rm -rf {} + 2>/dev/null || true && \
     # Remove examples directories but NOT evaluation_examples/examples/ (contains task files)
-    find /osworld -type d -name "examples" ! -path "*/evaluation_examples/examples*" -exec rm -rf {} + 2>/dev/null || true
+    find /osworld -type d -name "examples" ! -path "*/evaluation_examples/examples*" -exec rm -rf {} + 2>/dev/null || true && \
+    # Remove documentation files
+    find /osworld -type f \( -name "*.md" -o -name "LICENSE" -o -name "CONTRIBUTING*" -o -name "CHANGELOG*" \) ! -path "*/evaluation_examples/*" -delete 2>/dev/null || true && \
+    # Remove large unnecessary files
+    find /osworld -type f -name "*.zip" ! -path "*/docker_vm_data/*" -delete 2>/dev/null || true && \
+    find /osworld -type f -name "*.tar.gz" ! -path "*/docker_vm_data/*" -delete 2>/dev/null || true && \
+    # Final cleanup of temporary files
+    rm -rf /tmp/* /var/tmp/* /root/.cache 2>/dev/null || true
 
 # Final stage - minimal runtime image
 FROM python:3.11-slim
@@ -143,6 +163,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
           echo "docker-cli not available in repos")) || true) \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
+    && rm -rf /var/cache/apt/archives/* \
     && (docker --version 2>&1 || echo "⚠️  docker CLI not available after installation")
 
 # Copy Python packages from builder (single layer)
@@ -152,7 +173,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy OSWorld installation (changes when OSWorld updates)
 # Exclude unnecessary files already cleaned in builder stage
-COPY --from=builder /osworld /osworld
+# Use --chown to avoid permission issues and reduce layers
+COPY --from=builder --chown=root:root /osworld /osworld
 
 # Copy application files and set permissions in a single layer
 # Order: least frequently changing files first for better cache hits
