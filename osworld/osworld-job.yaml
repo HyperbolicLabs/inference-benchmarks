@@ -180,7 +180,7 @@ spec:
             - name: PROVIDER_NAME
               value: "docker"  # Options: docker, aws, virtualbox, vmware, azure, aliyun
             - name: NUM_ENVS
-              value: "30"  # Number of parallel environments (uses ~120 CPU cores, optimized for cluster capacity)
+              value: "25"  # Number of parallel environments (reduced from 30 to avoid file lock contention)
             - name: MAX_STEPS
               value: "15"  # Maximum steps per task
             - name: MAX_TOKENS
@@ -249,15 +249,16 @@ spec:
             # Docker socket mount removed - cluster uses containerd/cri-o
             # OSWorld will need to use a different provider or run in privileged mode
             resources:
-              # Updated for 30 parallel environments (30 × 4 cores = 120, 30 × 4GB = 120GB)
+              # Updated for 25 parallel environments (25 × 4 cores = 100, 25 × 4GB = 100GB)
+              # Reduced from 30 to avoid Docker port allocation file lock contention
               # Requests are conservative to allow other workloads to schedule
               # Limits allow bursting to full capacity when needed
               requests:
-                memory: "90Gi"    # Conservative: 30 envs × 3GB (allows some sharing)
-                cpu: "90"         # Conservative: 30 envs × 3 cores (allows some sharing)
+                memory: "75Gi"    # Conservative: 25 envs × 3GB (allows some sharing)
+                cpu: "75"         # Conservative: 25 envs × 3 cores (allows some sharing)
               limits:
-                memory: "240Gi"   # Full capacity: 30 envs × 4GB × 2 (Docker overhead)
-                cpu: "240"         # Full capacity: 30 envs × 4 cores × 2 (headroom)
+                memory: "200Gi"   # Full capacity: 25 envs × 4GB × 2 (Docker overhead)
+                cpu: "200"         # Full capacity: 25 envs × 4 cores × 2 (headroom)
           volumes:
           - name: results
             persistentVolumeClaim:
