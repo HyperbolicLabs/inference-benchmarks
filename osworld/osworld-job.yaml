@@ -249,13 +249,15 @@ spec:
             # Docker socket mount removed - cluster uses containerd/cri-o
             # OSWorld will need to use a different provider or run in privileged mode
             resources:
-              # Updated for 20 parallel environments (20 × 4 cores = 80, 20 × 4GB = 80GB)
+              # Updated for 20 parallel environments
+              # Requests are conservative to allow other workloads to schedule
+              # Limits allow bursting to full capacity when needed
               requests:
-                memory: "80Gi"    # 20 envs × 4GB = 80GB minimum
-                cpu: "80"         # 20 envs × 4 cores = 80 cores minimum
+                memory: "60Gi"    # Conservative: 20 envs × 3GB (allows some sharing)
+                cpu: "60"         # Conservative: 20 envs × 3 cores (allows some sharing)
               limits:
-                memory: "160Gi"   # 2× request for headroom and Docker overhead
-                cpu: "160"        # 2× request for headroom
+                memory: "160Gi"   # Full capacity: 20 envs × 4GB × 2 (Docker overhead)
+                cpu: "160"        # Full capacity: 20 envs × 4 cores × 2 (headroom)
           volumes:
           - name: results
             persistentVolumeClaim:
