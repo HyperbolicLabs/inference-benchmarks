@@ -18,6 +18,42 @@ RUN git clone --depth 1 --branch ${OSWORLD_VERSION} https://github.com/xlang-ai/
      git clone https://github.com/xlang-ai/OSWorld.git /osworld && \
      cd /osworld && git checkout ${OSWORLD_VERSION} 2>/dev/null || git checkout -b ${OSWORLD_VERSION} || true)
 
+# Fix lib_run_single.py to handle agents that don't support vm_ip parameter
+# Update the fallback pattern to gracefully handle different agent reset() signatures
+RUN python3 << 'EOF'
+file_path = '/osworld/lib_run_single.py'
+with open(file_path, 'r') as f:
+    lines = f.readlines()
+
+# Find and replace the problematic reset call pattern
+new_lines = []
+i = 0
+while i < len(lines):
+    # Look for the pattern: "# Reset agent with fresh VM IP"
+    if i < len(lines) - 4 and "Reset agent with fresh VM IP" in lines[i]:
+        # Check if this is the problematic pattern
+        if i + 3 < len(lines) and "agent.reset(runtime_logger, vm_ip=env.vm_ip)" in lines[i+2]:
+            if i + 4 < len(lines) and "agent.reset(vm_ip=env.vm_ip)" in lines[i+4]:
+                # Replace with better fallback pattern
+                new_lines.append(lines[i])  # Keep the comment
+                new_lines.append("    # Handle agent reset signature differences gracefully\n")
+                new_lines.append("    try:\n")
+                new_lines.append("        agent.reset(runtime_logger, vm_ip=env.vm_ip)\n")
+                new_lines.append("    except Exception:\n")
+                new_lines.append("        try:\n")
+                new_lines.append("            agent.reset(runtime_logger)\n")
+                new_lines.append("        except Exception:\n")
+                new_lines.append("            agent.reset()\n")
+                i += 5  # Skip the old 5 lines
+                continue
+    new_lines.append(lines[i])
+    i += 1
+
+with open(file_path, 'w') as f:
+    f.writelines(new_lines)
+print("✅ Patched lib_run_single.py to handle agents without vm_ip support")
+EOF
+
 # Install Python dependencies in optimal order to avoid conflicts:
 # 1. Upgrade pip (changes rarely)
 # 2. Install OSWorld FIRST - let it resolve all its dependencies (avoids uninstall/reinstall)
