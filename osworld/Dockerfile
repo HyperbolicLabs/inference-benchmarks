@@ -110,10 +110,11 @@ if not os.path.exists(vm_path):
     print(f'Size: {os.path.getsize(vm_path) / (1024**3):.2f} GB')
 else:
     print(f'VM image already exists: {vm_path}')
-EOF && \
-    # Clean up download tools and temporary files immediately after VM download
-    # Uninstall packages to save space (they're only needed for download)
-    pip uninstall -y requests tqdm 2>/dev/null || true && \
+EOF
+
+# Clean up download tools and temporary files immediately after VM download
+# Uninstall packages to save space (they're only needed for download)
+RUN pip uninstall -y requests tqdm 2>/dev/null || true && \
     pip cache purge 2>/dev/null || true && \
     # Aggressive cleanup of all temporary and cache files
     rm -rf /tmp/* /var/tmp/* /root/.cache/* /root/.local/share/pip 2>/dev/null || true && \
