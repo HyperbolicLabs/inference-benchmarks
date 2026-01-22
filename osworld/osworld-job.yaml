@@ -1,5 +1,5 @@
 apiVersion: batch/v1
-kind: Job
+kind: CronJob
 metadata:
   name: osworld
   namespace: inference-benchmark
@@ -7,225 +7,249 @@ metadata:
     app: osworld
     component: evaluation
 spec:
-  ttlSecondsAfterFinished: 86400  # Clean up after 24 hours (evaluations can be long)
-  backoffLimit: 1
-  template:
-    metadata:
-      labels:
-        app: osworld
-        component: evaluation
+  # Run every hour (evaluations can take several days)
+  # OSWorld evaluations are long-running (359 tasks, ~5 days), so hourly schedule ensures
+  # continuous evaluation. With concurrencyPolicy: Forbid, new jobs will only start
+  # after the previous one completes, effectively running continuously.
+  schedule: "0 * * * *"
+  # Prevent multiple jobs from running simultaneously
+  # If a job is still running when the next schedule time arrives, skip it
+  concurrencyPolicy: Forbid
+  # Keep job history for debugging and monitoring
+  # 3 successful jobs = 3 days of history
+  # 2 failed jobs = enough to debug issues
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 2
+  jobTemplate:
     spec:
-      restartPolicy: Never
-      # OSWorld requires desktop environments - may need privileged mode or specific node selectors
-      # Consider using nodes with GPU support if available
-      containers:
-      - name: osworld-eval
-        image: ghcr.io/hyperboliclabs/osworld:latest
-        imagePullPolicy: Always
-        command:
-        - /bin/sh
-        - -c
-        - |
-          set -e
-          echo "=== OSWorld Evaluation ==="
-          
-          # Start Docker daemon (required for Docker provider in containerd/cri-o clusters)
-          echo "Starting Docker daemon..."
-          
-          # Create Docker data directory and socket directory
-          mkdir -p /var/lib/docker /var/run
-          
-          # Start dockerd in background with proper configuration
-          dockerd \
-            --host=unix:///var/run/docker.sock \
-            --storage-driver=vfs \
-            --data-root=/var/lib/docker \
-            > /tmp/dockerd.log 2>&1 &
-          DOCKERD_PID=$!
-          
-          # Wait for Docker socket to be created
-          echo "Waiting for Docker socket..."
-          socket_timeout=30
-          while [ $socket_timeout -gt 0 ] && [ ! -S /var/run/docker.sock ]; do
-            sleep 1
-            socket_timeout=$((socket_timeout - 1))
-          done
-          
-          if [ ! -S /var/run/docker.sock ]; then
-            echo "❌ Docker socket not created after 30 seconds"
-            cat /tmp/dockerd.log
-            exit 1
-          fi
-          
-          echo "✅ Docker socket created: $(ls -la /var/run/docker.sock)"
-          # Give Docker a moment to fully initialize after socket creation
-          sleep 3
-          
-          # Wait for Docker daemon to be ready (check after socket exists)
-          echo "Waiting for Docker daemon to be ready..."
-          # Verify docker command is available
-          # docker.io may only install dockerd, not docker CLI
-          if ! command -v docker >/dev/null 2>&1; then
-            echo "⚠️  docker CLI not in PATH, checking alternatives..."
-            # Check common locations
-            DOCKER_CMD=""
-            for path in /usr/bin/docker /usr/local/bin/docker /usr/sbin/docker; do
-              if [ -x "$path" ]; then
-                DOCKER_CMD="$path"
-                break
+      ttlSecondsAfterFinished: 86400  # Clean up after 24 hours (evaluations can be long)
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: osworld
+            component: evaluation
+        spec:
+          restartPolicy: Never
+          # OSWorld requires desktop environments - may need privileged mode or specific node selectors
+          # Consider using nodes with GPU support if available
+          containers:
+          - name: osworld-eval
+            image: ghcr.io/hyperboliclabs/osworld:latest
+            imagePullPolicy: Always
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "=== OSWorld Evaluation ==="
+              
+              # Start Docker daemon (required for Docker provider in containerd/cri-o clusters)
+              echo "Starting Docker daemon..."
+              
+              # Create Docker data directory and socket directory
+              mkdir -p /var/lib/docker /var/run
+              
+              # Start dockerd in background with proper configuration
+              dockerd \
+                --host=unix:///var/run/docker.sock \
+                --storage-driver=vfs \
+                --data-root=/var/lib/docker \
+                > /tmp/dockerd.log 2>&1 &
+              DOCKERD_PID=$!
+              
+              # Wait for Docker socket to be created
+              echo "Waiting for Docker socket..."
+              socket_timeout=30
+              while [ $socket_timeout -gt 0 ] && [ ! -S /var/run/docker.sock ]; do
+                sleep 1
+                socket_timeout=$((socket_timeout - 1))
+              done
+              
+              if [ ! -S /var/run/docker.sock ]; then
+                echo "❌ Docker socket not created after 30 seconds"
+                cat /tmp/dockerd.log
+                exit 1
               fi
-            done
+              
+              echo "✅ Docker socket created: $(ls -la /var/run/docker.sock)"
+              # Give Docker a moment to fully initialize after socket creation
+              sleep 3
+              
+              # Wait for Docker daemon to be ready (check after socket exists)
+              echo "Waiting for Docker daemon to be ready..."
+              # Verify docker command is available
+              # docker.io may only install dockerd, not docker CLI
+              if ! command -v docker >/dev/null 2>&1; then
+                echo "⚠️  docker CLI not in PATH, checking alternatives..."
+                # Check common locations
+                DOCKER_CMD=""
+                for path in /usr/bin/docker /usr/local/bin/docker /usr/sbin/docker; do
+                  if [ -x "$path" ]; then
+                    DOCKER_CMD="$path"
+                    break
+                  fi
+                done
+                
+                if [ -n "$DOCKER_CMD" ]; then
+                  export PATH="$(dirname $DOCKER_CMD):$PATH"
+                  echo "✅ Found docker at $DOCKER_CMD, added to PATH"
+                else
+                  echo "❌ docker CLI command not found"
+                  echo "PATH: $PATH"
+                  echo "Searching for docker binaries:"
+                  find /usr -type f -name "docker*" -executable 2>/dev/null | head -10 || echo "docker not found anywhere"
+                  echo ""
+                  echo "⚠️  docker.io package may only include dockerd, not docker CLI"
+                  echo "Attempting to use dockerd directly or install docker CLI..."
+                  # Try to install docker CLI if possible
+                  apt-get update && apt-get install -y --no-install-recommends docker-cli 2>&1 | head -5 || \
+                  echo "Could not install docker-cli package"
+                  exit 1
+                fi
+              fi
+              # Verify docker works
+              if ! docker --version >/dev/null 2>&1; then
+                echo "❌ docker command exists but doesn't work"
+                docker --version 2>&1 || true
+                exit 1
+              fi
+              echo "✅ Docker CLI verified: $(docker --version)"
+              timeout=60
+              while [ $timeout -gt 0 ]; do
+                # Check if dockerd process is still running
+                if ! kill -0 $DOCKERD_PID 2>/dev/null; then
+                  echo "❌ Docker daemon process died"
+                  cat /tmp/dockerd.log
+                  exit 1
+                fi
+                # Try to connect to Docker and check for success
+                docker_output=$(docker info 2>&1)
+                docker_exit=$?
+                if [ $docker_exit -eq 0 ] && echo "$docker_output" | grep -q "Server Version"; then
+                  echo "✅ Docker daemon is ready"
+                  docker info | head -5
+                  break
+                fi
+                # Log the error every 10 seconds for debugging
+                if [ $((timeout % 10)) -eq 0 ]; then
+                  echo "Still waiting... ($timeout seconds remaining)"
+                  echo "Docker info error: $docker_output" | head -3
+                fi
+                sleep 2
+                timeout=$((timeout - 2))
+              done
+              
+              if [ $timeout -eq 0 ]; then
+                echo "❌ Docker daemon failed to respond after 60 seconds"
+                echo "Docker daemon logs (last 50 lines):"
+                tail -50 /tmp/dockerd.log
+                echo "Checking socket:"
+                ls -la /var/run/docker.sock 2>&1 || echo "Socket does not exist"
+                exit 1
+              fi
+              
+              # Run evaluation (includes Datadog export)
+              cd /osworld
+              python3 run_evaluation.py
+              
+              # Cleanup: stop Docker daemon
+              kill $DOCKERD_PID 2>/dev/null || true
+            env:
+            # Inference endpoint configuration
+            - name: OPENAI_BASE_URL
+              value: "http://infra-inference-scheduling-inference-gateway.llm-d.svc.cluster.local/v1"
+            - name: OPENAI_API_KEY
+              value: "dummy-key"
+            - name: MODEL_NAME
+              value: "Qwen/Qwen3-VL-32B-Thinking"
             
-            if [ -n "$DOCKER_CMD" ]; then
-              export PATH="$(dirname $DOCKER_CMD):$PATH"
-              echo "✅ Found docker at $DOCKER_CMD, added to PATH"
-            else
-              echo "❌ docker CLI command not found"
-              echo "PATH: $PATH"
-              echo "Searching for docker binaries:"
-              find /usr -type f -name "docker*" -executable 2>/dev/null | head -10 || echo "docker not found anywhere"
-              echo ""
-              echo "⚠️  docker.io package may only include dockerd, not docker CLI"
-              echo "Attempting to use dockerd directly or install docker CLI..."
-              # Try to install docker CLI if possible
-              apt-get update && apt-get install -y --no-install-recommends docker-cli 2>&1 | head -5 || \
-              echo "Could not install docker-cli package"
-              exit 1
-            fi
-          fi
-          # Verify docker works
-          if ! docker --version >/dev/null 2>&1; then
-            echo "❌ docker command exists but doesn't work"
-            docker --version 2>&1 || true
-            exit 1
-          fi
-          echo "✅ Docker CLI verified: $(docker --version)"
-          timeout=60
-          while [ $timeout -gt 0 ]; do
-            # Check if dockerd process is still running
-            if ! kill -0 $DOCKERD_PID 2>/dev/null; then
-              echo "❌ Docker daemon process died"
-              cat /tmp/dockerd.log
-              exit 1
-            fi
-            # Try to connect to Docker and check for success
-            docker_output=$(docker info 2>&1)
-            docker_exit=$?
-            if [ $docker_exit -eq 0 ] && echo "$docker_output" | grep -q "Server Version"; then
-              echo "✅ Docker daemon is ready"
-              docker info | head -5
-              break
-            fi
-            # Log the error every 10 seconds for debugging
-            if [ $((timeout % 10)) -eq 0 ]; then
-              echo "Still waiting... ($timeout seconds remaining)"
-              echo "Docker info error: $docker_output" | head -3
-            fi
-            sleep 2
-            timeout=$((timeout - 2))
-          done
-          
-          if [ $timeout -eq 0 ]; then
-            echo "❌ Docker daemon failed to respond after 60 seconds"
-            echo "Docker daemon logs (last 50 lines):"
-            tail -50 /tmp/dockerd.log
-            echo "Checking socket:"
-            ls -la /var/run/docker.sock 2>&1 || echo "Socket does not exist"
-            exit 1
-          fi
-          
-          # Run evaluation (includes Datadog export)
-          cd /osworld
-          python3 run_evaluation.py
-          
-          # Cleanup: stop Docker daemon
-          kill $DOCKERD_PID 2>/dev/null || true
-        env:
-        # Inference endpoint configuration
-        - name: OPENAI_BASE_URL
-          value: "http://infra-inference-scheduling-inference-gateway.llm-d.svc.cluster.local/v1"
-        - name: OPENAI_API_KEY
-          value: "dummy-key"
-        - name: MODEL_NAME
-          value: "Qwen/Qwen3-VL-32B-Thinking"
-        
-        # OSWorld configuration
-        - name: PROVIDER_NAME
-          value: "docker"  # Options: docker, aws, virtualbox, vmware, azure, aliyun
-        - name: NUM_ENVS
-          value: "1"  # Number of parallel environments
-        - name: MAX_STEPS
-          value: "15"  # Maximum steps per task
-        - name: MAX_TOKENS
-          value: "32768"  # Maximum tokens per request
-        - name: DOMAIN
-          value: "all"  # Domain to test (or specific domain)
-        - name: TEST_META_PATH
-          value: "evaluation_examples/test_nogdrive.json"
-        - name: RESULT_DIR
-          value: "/osworld/results"
-        - name: ACTION_SPACE
-          value: "pyautogui"
-        - name: OBSERVATION_TYPE
-          value: "screenshot"
-        - name: ADDITIONAL_ARGS
-          value: ""  # Additional arguments for run_multienv_qwen3vl.py
-        # Datadog API key for metrics export (optional)
-        - name: DD_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: datadog-api-key
-              key: api-key
-              optional: true
-        
-        # Datadog LLM Observability configuration
-        # Use Datadog service DNS instead of hostIP for reliable connection
-        - name: DD_AGENT_HOST
-          value: "datadog.datadog.svc.cluster.local"
-        - name: DD_TRACE_AGENT_PORT
-          value: "8126"
-        - name: DD_LLMOBS_ENABLED
-          value: "1"
-        - name: DD_LLMOBS_ML_APP
-          value: "osworld-benchmark"
-        - name: DD_SITE
-          value: "us5.datadoghq.com"
-        
-        # Desktop environment may require privileged access
-        securityContext:
-          privileged: true  # Required for Docker provider
-          capabilities:
-            add:
-            - SYS_ADMIN
-            - NET_ADMIN
-        
-        volumeMounts:
-        - name: results
-          mountPath: /osworld/results
-        # Mount VM cache PVC - OSWorld will download VM image here on first run
-        # Subsequent runs will reuse the cached VM image (saves 3-4 minutes)
-        - name: vm-cache
-          mountPath: /osworld/docker_vm_data
-        # Docker socket mount removed - cluster uses containerd/cri-o
-        # OSWorld will need to use a different provider or run in privileged mode
-        resources:
-          requests:
-            memory: "8Gi"
-            cpu: "2000m"
-          limits:
-            memory: "16Gi"
-            cpu: "4000m"
-      volumes:
-      - name: results
-        persistentVolumeClaim:
-          claimName: osworld-results
-          # Optional: Use emptyDir for ephemeral results
-          # emptyDir: {}
-      - name: vm-cache
-        persistentVolumeClaim:
-          claimName: osworld-vm-cache
-          # This caches the ~11.4GB Ubuntu.qcow2 VM image between runs
-          # First run will download it (3-4 minutes), subsequent runs reuse it
-      # Docker socket volume removed - cluster uses containerd
-      imagePullSecrets:
-      - name: ghcr-image-pull-secret
+            # OSWorld configuration
+            - name: PROVIDER_NAME
+              value: "docker"  # Options: docker, aws, virtualbox, vmware, azure, aliyun
+            - name: NUM_ENVS
+              value: "1"  # Number of parallel environments
+            - name: MAX_STEPS
+              value: "15"  # Maximum steps per task
+            - name: MAX_TOKENS
+              value: "32768"  # Maximum tokens per request
+            - name: DOMAIN
+              value: "all"  # Domain to test (or specific domain)
+            - name: TEST_META_PATH
+              value: "evaluation_examples/test_nogdrive.json"
+            - name: RESULT_DIR
+              value: "/osworld/results"
+            - name: ACTION_SPACE
+              value: "pyautogui"
+            - name: OBSERVATION_TYPE
+              value: "screenshot"
+            - name: ADDITIONAL_ARGS
+              value: ""  # Additional arguments for run_multienv_qwen3vl.py
+            # Datadog API key for metrics export (optional)
+            - name: DD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: datadog-api-key
+                  key: api-key
+                  optional: true
+            
+            # Datadog LLM Observability configuration
+            # Use Datadog service DNS instead of hostIP for reliable connection
+            - name: DD_AGENT_HOST
+              value: "datadog.datadog.svc.cluster.local"
+            - name: DD_TRACE_AGENT_PORT
+              value: "8126"
+            - name: DD_LLMOBS_ENABLED
+              value: "1"
+            - name: DD_LLMOBS_ML_APP
+              value: "osworld-benchmark"
+            - name: DD_SITE
+              value: "us5.datadoghq.com"
+            # Environment variables for non-interactive Kubernetes environment
+            - name: TERM
+              value: "dumb"
+            - name: CI
+              value: "true"
+            - name: NO_COLOR
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            
+            # Desktop environment may require privileged access
+            securityContext:
+              privileged: true  # Required for Docker provider
+              capabilities:
+                add:
+                - SYS_ADMIN
+                - NET_ADMIN
+            
+            volumeMounts:
+            - name: results
+              mountPath: /osworld/results
+            # Mount VM cache PVC - OSWorld will download VM image here on first run
+            # Subsequent runs will reuse the cached VM image (saves 3-4 minutes)
+            - name: vm-cache
+              mountPath: /osworld/docker_vm_data
+            # Docker socket mount removed - cluster uses containerd/cri-o
+            # OSWorld will need to use a different provider or run in privileged mode
+            resources:
+              requests:
+                memory: "8Gi"
+                cpu: "2000m"
+              limits:
+                memory: "16Gi"
+                cpu: "4000m"
+          volumes:
+          - name: results
+            persistentVolumeClaim:
+              claimName: osworld-results
+              # Optional: Use emptyDir for ephemeral results
+              # emptyDir: {}
+          - name: vm-cache
+            persistentVolumeClaim:
+              claimName: osworld-vm-cache
+              # This caches the ~11.4GB Ubuntu.qcow2 VM image between runs
+              # First run will download it (3-4 minutes), subsequent runs reuse it
+          # Docker socket volume removed - cluster uses containerd
+          imagePullSecrets:
+          - name: ghcr-image-pull-secret
