@@ -193,7 +193,7 @@ spec:
             - name: NUM_ENVS
               value: "20"  # Number of parallel environments (optimal balance: good parallelism, minimal lock contention)
             - name: MAX_STEPS
-              value: "15"  # Maximum steps per task
+              value: "25"  # Maximum steps per task (increased from 15 to allow more complex tasks to complete)
             - name: MAX_TOKENS
               value: "32768"  # Maximum tokens per request (default for Qwen3VL)
             - name: DOMAIN
