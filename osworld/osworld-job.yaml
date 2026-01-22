@@ -7,11 +7,12 @@ metadata:
     app: osworld
     component: evaluation
 spec:
-  # Run every hour (evaluations can take several days)
-  # OSWorld evaluations are long-running (359 tasks, ~5 days), so hourly schedule ensures
+  # Run every 2 hours (evaluations take ~1.5 hours with 20 parallel environments)
+  # OSWorld evaluations complete in ~1.5 hours with 20 parallel environments (361 tasks).
+  # Every 2 hours provides a 25-minute buffer between runs while maintaining
   # continuous evaluation. With concurrencyPolicy: Forbid, new jobs will only start
-  # after the previous one completes, effectively running continuously.
-  schedule: "0 * * * *"
+  # after the previous one completes, ensuring no overlapping runs.
+  schedule: "0 */2 * * *"
   # Prevent multiple jobs from running simultaneously
   # If a job is still running when the next schedule time arrives, skip it
   concurrencyPolicy: Forbid
