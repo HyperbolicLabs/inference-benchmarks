@@ -111,6 +111,7 @@ if not os.path.exists(vm_path):
 else:
     print(f'VM image already exists: {vm_path}')
 EOF
+    && \
     # Clean up download tools and temporary files immediately after VM download
     # Uninstall packages to save space (they're only needed for download)
     pip uninstall -y requests tqdm 2>/dev/null || true && \
