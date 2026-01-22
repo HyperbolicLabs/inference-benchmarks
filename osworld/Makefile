@@ -49,11 +49,12 @@ build-push: login push ## Login, build and push the Docker image
 	@echo "✅ Build and push complete"
 
 deploy: ## Deploy the evaluation job to Kubernetes
-	@echo "Deploying PVC (if not exists)..."
-	@kubectl --kubeconfig=$(KUBECONFIG) apply -f pvc.yaml || echo "PVC may already exist"
+	@echo "Deploying PVCs (if not exists)..."
+	@kubectl --kubeconfig=$(KUBECONFIG) apply -f pvc.yaml || echo "PVCs may already exist"
 	@echo "Deploying OSWorld evaluation job to namespace $(NAMESPACE)..."
 	@kubectl --kubeconfig=$(KUBECONFIG) apply -f osworld-job.yaml
 	@echo "✅ Evaluation job deployed"
+	@echo "Note: First run will download VM image (~11.4GB, 3-4 minutes), subsequent runs use cached image"
 
 test: deploy ## Deploy and wait for evaluation job to complete
 	@echo "Waiting for evaluation job to complete..."

@@ -203,6 +203,10 @@ spec:
         volumeMounts:
         - name: results
           mountPath: /osworld/results
+        # Mount VM cache PVC - OSWorld will download VM image here on first run
+        # Subsequent runs will reuse the cached VM image (saves 3-4 minutes)
+        - name: vm-cache
+          mountPath: /osworld/docker_vm_data
         # Docker socket mount removed - cluster uses containerd/cri-o
         # OSWorld will need to use a different provider or run in privileged mode
         resources:
@@ -218,6 +222,11 @@ spec:
           claimName: osworld-results
           # Optional: Use emptyDir for ephemeral results
           # emptyDir: {}
+      - name: vm-cache
+        persistentVolumeClaim:
+          claimName: osworld-vm-cache
+          # This caches the ~11.4GB Ubuntu.qcow2 VM image between runs
+          # First run will download it (3-4 minutes), subsequent runs reuse it
       # Docker socket volume removed - cluster uses containerd
       imagePullSecrets:
       - name: ghcr-image-pull-secret

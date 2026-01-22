@@ -109,19 +109,26 @@ env:
    - Clones OSWorld repository
    - Installs all dependencies
    - Sets up desktop environment support
+   - **Note**: VM image (~11.4GB) is NOT included in Docker image
+   - OSWorld automatically downloads VM image on first run if not cached
 
 2. **Endpoint Configuration**:
    - Creates `.env` file with endpoint settings
    - OSWorld's `Qwen3VLAgent` reads from environment variables
 
-3. **Evaluation Execution**:
+3. **VM Image Caching**:
+   - VM image is cached in PVC (`osworld-vm-cache`)
+   - First run downloads VM image (adds 3-4 minutes)
+   - Subsequent runs reuse cached VM image (instant)
+
+4. **Evaluation Execution**:
    - Runs `run_multienv_qwen3vl.py` with configured parameters
    - Creates desktop environments (Docker containers)
    - Runs agent tasks in parallel
    - Collects results
 
-4. **Results**:
-   - Stored in `/osworld/results` (emptyDir volume)
+5. **Results**:
+   - Stored in `/osworld/results` (PVC)
    - Includes trajectories, screenshots, recordings
    - Results persist until job TTL expires (24 hours)
 

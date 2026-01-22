@@ -10,3 +10,16 @@ spec:
     requests:
       storage: 100Gi  # OSWorld results are larger (videos, screenshots)
   storageClassName: gcore-nfs-3ab538e0-f64d-47bf-a72a-4fa646944598
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: osworld-vm-cache
+  namespace: inference-benchmark
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 15Gi  # VM image cache (~11.4GB Ubuntu.qcow2 + overhead)
+  storageClassName: gcore-nfs-3ab538e0-f64d-47bf-a72a-4fa646944598

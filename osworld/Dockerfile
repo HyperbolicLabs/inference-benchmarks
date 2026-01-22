@@ -70,57 +70,10 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip cache purge 2>/dev/null || true && \
     rm -rf /tmp/* /var/tmp/* /root/.cache/pip 2>/dev/null || true
 
-# Pre-download and extract OSWorld VM image to save runtime (saves ~3-4 minutes per run)
-# VM image: 11.4GB Ubuntu.qcow2.zip from HuggingFace
-# This is done in builder stage to leverage build cache and avoid runtime download
-# OSWorld checks if Ubuntu.qcow2 exists before downloading, so pre-extracting it skips the download
-# Note: This is the largest part of the image (~11.4GB), but required for runtime
-RUN pip install --no-cache-dir --no-warn-script-location requests tqdm && \
-    mkdir -p /osworld/docker_vm_data && \
-    cd /osworld/docker_vm_data && \
-    echo "Pre-downloading OSWorld VM image (11.4GB)..." && \
-    python3 << 'EOF'
-import requests
-import zipfile
-import os
-from tqdm import tqdm
-
-url = 'https://huggingface.co/datasets/xlangai/ubuntu_osworld/resolve/main/Ubuntu.qcow2.zip'
-zip_path = 'Ubuntu.qcow2.zip'
-vm_path = 'Ubuntu.qcow2'
-
-if not os.path.exists(vm_path):
-    print(f'Downloading {url}...')
-    r = requests.get(url, stream=True)
-    r.raise_for_status()
-    total = int(r.headers.get('content-length', 0))
-    
-    with open(zip_path, 'wb') as f, tqdm(total=total, unit='B', unit_scale=True, desc='Download') as pbar:
-        for chunk in r.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
-                pbar.update(len(chunk))
-    
-    print('Extracting...')
-    with zipfile.ZipFile(zip_path, 'r') as z:
-        z.extractall('.')
-    
-    os.remove(zip_path)
-    print(f'VM image ready: {vm_path}')
-    print(f'Size: {os.path.getsize(vm_path) / (1024**3):.2f} GB')
-else:
-    print(f'VM image already exists: {vm_path}')
-EOF
-
-# Clean up download tools and temporary files immediately after VM download
-# Uninstall packages to save space (they're only needed for download)
-RUN pip uninstall -y requests tqdm 2>/dev/null || true && \
-    pip cache purge 2>/dev/null || true && \
-    # Aggressive cleanup of all temporary and cache files
-    rm -rf /tmp/* /var/tmp/* /root/.cache/* /root/.local/share/pip 2>/dev/null || true && \
-    # Clean up any Python bytecode that might have been generated
-    find /osworld -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
-    find /osworld -type f -name "*.pyc" -delete 2>/dev/null || true
+# Note: VM image (Ubuntu.qcow2, ~11.4GB) is NOT pre-downloaded in the image
+# OSWorld will download it automatically at runtime if it doesn't exist
+# Use a PVC mounted to /osworld/docker_vm_data to cache the VM image between runs
+# This keeps the Docker image small (~500MB vs 12GB+) and avoids build disk space issues
 
 # Cleanup: Remove unnecessary files to reduce image size
 # Remove git history, tests, docs, and other development files
