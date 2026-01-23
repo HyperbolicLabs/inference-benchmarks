@@ -25,7 +25,7 @@ def parse_osworld_results(result_dir: str) -> Dict[str, float]:
         result_dir: Directory containing OSWorld results
     
     Returns:
-        Dictionary of metric_name -> value
+        Dictionary of metric_name -> value, including domain-specific metrics
     """
     result_path = Path(result_dir)
     metrics = {}
@@ -45,6 +45,10 @@ def parse_osworld_results(result_dir: str) -> Dict[str, float]:
     total_score = 0.0
     failed_parses = 0
     
+    # Domain-specific tracking
+    # OSWorld results are organized as: result_dir/{action_space}/{observation_type}/{model}/{domain}/{task_id}/result.txt
+    domain_stats = {}  # domain -> {"total": count, "successful": count, "total_score": sum}
+    
     for result_file in result_files:
         try:
             with open(result_file) as f:
@@ -58,6 +62,44 @@ def parse_osworld_results(result_dir: str) -> Dict[str, float]:
                 total_score += score
                 if score > 0:
                     successful_tasks += 1
+                
+                # Extract domain from path
+                # OSWorld structure: result_dir/{action_space}/{observation_type}/{model}/{domain}/{task_id}/result.txt
+                # Or with unique dir: result_dir/run-{id}/{action_space}/{observation_type}/{model}/{domain}/{task_id}/result.txt
+                parts = result_file.parts
+                domain = "unknown"
+                
+                # Common OSWorld domains
+                known_domains = ["chrome", "gimp", "libreoffice_calc", "libreoffice_impress", 
+                                "libreoffice_writer", "multi_apps", "os", "thunderbird", 
+                                "vlc", "vs_code", "firefox", "file_manager", "terminal"]
+                
+                # Look for domain in path (it's typically 2-3 levels up from result.txt)
+                # result.txt is in {task_id}/, which is in {domain}/, which is in {model}/
+                for part in parts:
+                    if part in known_domains:
+                        domain = part
+                        break
+                
+                # If not found, try parent directory of task_id (which should be domain)
+                if domain == "unknown" and len(parts) >= 2:
+                    potential_domain = parts[-2]  # Parent directory of result.txt (task_id)
+                    parent_of_task = parts[-3] if len(parts) >= 3 else None  # This should be domain
+                    if parent_of_task and parent_of_task not in ["results", "run-", "pyautogui", "screenshot", "qwen3-vl", "Qwen", "Qwen3-VL-32B-Thinking"]:
+                        domain = parent_of_task
+                    elif potential_domain and potential_domain not in ["results", "run-", "pyautogui", "screenshot", "qwen3-vl", "Qwen", "Qwen3-VL-32B-Thinking", "result.txt"]:
+                        # Fallback: use parent if it looks like a domain name
+                        domain = potential_domain
+                
+                # Initialize domain stats if needed
+                if domain not in domain_stats:
+                    domain_stats[domain] = {"total": 0, "successful": 0, "total_score": 0.0}
+                
+                domain_stats[domain]["total"] += 1
+                domain_stats[domain]["total_score"] += score
+                if score > 0:
+                    domain_stats[domain]["successful"] += 1
+                    
         except ValueError as e:
             print(f"⚠️  Invalid score in {result_file}: {e}")
             failed_parses += 1
@@ -73,6 +115,13 @@ def parse_osworld_results(result_dir: str) -> Dict[str, float]:
         metrics["failed_tasks"] = total_tasks - successful_tasks
         if failed_parses > 0:
             metrics["parse_errors"] = failed_parses
+        
+        # Add domain-specific metrics
+        for domain, stats in domain_stats.items():
+            metrics[f"domain_{domain}_total"] = stats["total"]
+            metrics[f"domain_{domain}_successful"] = stats["successful"]
+            metrics[f"domain_{domain}_success_rate"] = (stats["successful"] / stats["total"] * 100) if stats["total"] > 0 else 0.0
+            metrics[f"domain_{domain}_average_score"] = (stats["total_score"] / stats["total"]) if stats["total"] > 0 else 0.0
     
     return metrics
 
@@ -91,6 +140,8 @@ def main():
     action_space = os.getenv("ACTION_SPACE", "pyautogui")
     observation_type = os.getenv("OBSERVATION_TYPE", "screenshot")
     additional_args = os.getenv("ADDITIONAL_ARGS", "")
+    sleep_after_execution = os.getenv("SLEEP_AFTER_EXECUTION", "")
+    temperature = os.getenv("TEMPERATURE", "")
     
     # Create .env file for OSWorld
     openai_base_url = os.getenv("OPENAI_BASE_URL", "http://infra-inference-scheduling-inference-gateway.llm-d.svc.cluster.local/v1")
@@ -130,10 +181,35 @@ def main():
         "--observation_type", observation_type,
     ]
     
+    # Add explicit parameters if set (these take precedence over ADDITIONAL_ARGS)
+    if sleep_after_execution:
+        cmd.extend(["--sleep_after_execution", sleep_after_execution])
+    if temperature:
+        cmd.extend(["--temperature", temperature])
+    
     if additional_args:
-        # Split additional args and add to command
-        import shlex
-        cmd.extend(shlex.split(additional_args))
+        # Split additional args and add to command (only if explicit params not set)
+        # This allows ADDITIONAL_ARGS to override if needed, but explicit env vars are preferred
+        if not sleep_after_execution and not temperature:
+            import shlex
+            cmd.extend(shlex.split(additional_args))
+        else:
+            # If explicit params are set, still parse ADDITIONAL_ARGS for any other args
+            import shlex
+            parsed_args = shlex.split(additional_args)
+            # Filter out sleep_after_execution and temperature from ADDITIONAL_ARGS if they exist
+            filtered_args = []
+            skip_next = False
+            for i, arg in enumerate(parsed_args):
+                if skip_next:
+                    skip_next = False
+                    continue
+                if arg in ["--sleep_after_execution", "--temperature"]:
+                    skip_next = True
+                    continue
+                filtered_args.append(arg)
+            if filtered_args:
+                cmd.extend(filtered_args)
     
     # Run evaluation
     print("Running OSWorld evaluation...")
@@ -261,9 +337,46 @@ def main():
             total_tasks = metrics.get("total_tasks", 0)
             successful_tasks = metrics.get("successful_tasks", 0)
             print(f"✅ Evaluation passed: {successful_tasks}/{total_tasks} tasks succeeded ({success_rate:.1f}% success rate)")
+            
+            # Print domain-specific metrics
+            domain_metrics = {k: v for k, v in metrics.items() if k.startswith("domain_")}
+            if domain_metrics:
+                print()
+                print("=" * 60)
+                print("Domain-Specific Results (Success/Total)")
+                print("=" * 60)
+                # Group by domain
+                domains = {}
+                for key, value in domain_metrics.items():
+                    parts = key.split("_", 2)  # domain_{domain}_{metric}
+                    if len(parts) == 3:
+                        domain = parts[1]
+                        metric = parts[2]
+                        if domain not in domains:
+                            domains[domain] = {}
+                        domains[domain][metric] = value
+                
+                # Print in the format: domain: successful/total
+                domain_order = ["chrome", "gimp", "libreoffice_calc", "libreoffice_impress", 
+                               "libreoffice_writer", "multi_apps", "os", "thunderbird", 
+                               "vlc", "vs_code"]
+                for domain in domain_order:
+                    if domain in domains:
+                        successful = int(domains[domain].get("successful", 0))
+                        total = int(domains[domain].get("total", 0))
+                        if total > 0:
+                            print(f"{domain:20s}: {successful:5.2f}/{total}")
+                
+                # Print any other domains not in the standard list
+                for domain in sorted(domains.keys()):
+                    if domain not in domain_order:
+                        successful = int(domains[domain].get("successful", 0))
+                        total = int(domains[domain].get("total", 0))
+                        if total > 0:
+                            print(f"{domain:20s}: {successful:5.2f}/{total}")
         
         if metrics:
-            # Prepare tags
+            # Prepare base tags
             base_tags = [
                 f"model:{model_name}",
                 f"domain:{domain}",
@@ -271,12 +384,41 @@ def main():
                 "cluster_name:inference-cluster"
             ]
             
-            # Send asynchronously
-            send_metrics_async(
-                metrics=metrics,
-                metric_prefix="inference.benchmark.osworld",
-                base_tags=base_tags
-            )
+            # Separate domain-specific metrics from overall metrics
+            overall_metrics = {k: v for k, v in metrics.items() if not k.startswith("domain_")}
+            domain_metrics = {k: v for k, v in metrics.items() if k.startswith("domain_")}
+            
+            # Send overall metrics
+            if overall_metrics:
+                send_metrics_async(
+                    metrics=overall_metrics,
+                    metric_prefix="inference.benchmark.osworld",
+                    base_tags=base_tags
+                )
+            
+            # Send domain-specific metrics with domain-specific tags
+            if domain_metrics:
+                # Group domain metrics by domain
+                domain_groups = {}
+                for key, value in domain_metrics.items():
+                    parts = key.split("_", 2)  # domain_{domain}_{metric}
+                    if len(parts) == 3:
+                        domain_name = parts[1]
+                        metric_name = parts[2]
+                        if domain_name not in domain_groups:
+                            domain_groups[domain_name] = {}
+                        domain_groups[domain_name][metric_name] = value
+                
+                # Send metrics for each domain with domain-specific tag
+                for domain_name, domain_data in domain_groups.items():
+                    domain_tags = base_tags + [f"osworld_domain:{domain_name}"]
+                    # Rename metrics to remove domain prefix for cleaner metric names
+                    clean_metrics = {f"{metric_name}": value for metric_name, value in domain_data.items()}
+                    send_metrics_async(
+                        metrics=clean_metrics,
+                        metric_prefix="inference.benchmark.osworld.domain",
+                        base_tags=domain_tags
+                    )
         
         # Exit with error code if evaluation failed
         if evaluation_failed:

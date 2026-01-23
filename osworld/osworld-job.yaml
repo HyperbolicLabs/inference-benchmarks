@@ -196,6 +196,10 @@ spec:
               value: "15"  # Maximum steps per task
             - name: MAX_TOKENS
               value: "32768"  # Maximum tokens per request (default for Qwen3VL)
+            - name: SLEEP_AFTER_EXECUTION
+              value: "2.0"  # Wait 2 seconds after each action for UI to update
+            - name: TEMPERATURE
+              value: "0.1"  # Slight randomness for exploration (0.0 = deterministic, 0.1 = slight variation)
             - name: DOMAIN
               value: "all"  # Domain to test (or specific domain)
             - name: TEST_META_PATH
@@ -207,7 +211,7 @@ spec:
             - name: OBSERVATION_TYPE
               value: "screenshot"
             - name: ADDITIONAL_ARGS
-              value: ""  # Additional arguments for run_multienv_qwen3vl.py
+              value: ""  # Additional arguments for run_multienv_qwen3vl.py (sleep_after_execution and temperature are set via explicit env vars above)
             # Datadog API key for metrics export (optional)
             - name: DD_API_KEY
               valueFrom:
