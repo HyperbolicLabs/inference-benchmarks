@@ -39,7 +39,7 @@ def run_benchmark(
     Run AIPerf benchmark against an inference endpoint.
     
     Args:
-        model_name: Model identifier (e.g., "qwen3-8b", "qwen3-vl-32b")
+        model_name: Model identifier for AIPerf (must be valid HuggingFace id, e.g. "Qwen/Qwen3-VL-32B-Thinking")
         endpoint_url: Full inference chat endpoint URL including model path (path-based routing, e.g. https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b)
         endpoint_type: Type of endpoint (chat, completions, embeddings)
         concurrency: Number of concurrent requests
@@ -324,8 +324,9 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
 def main():
     """Main entry point for the benchmark script."""
     # Get configuration from environment variables or use defaults
-    # Path-based routing: ENDPOINT_URL must be the full chat URL including model path
-    model_name = os.getenv("MODEL_NAME", "qwen3-vl-32b")
+    # Path-based routing: ENDPOINT_URL must be the full chat URL including model path.
+    # MODEL_NAME is passed to AIPerf --model (must be a valid HuggingFace model id for dataset/config).
+    model_name = os.getenv("MODEL_NAME", "Qwen/Qwen3-VL-32B-Thinking")
     endpoint_url = os.getenv(
         "ENDPOINT_URL",
         "https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b",

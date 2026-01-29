@@ -131,7 +131,7 @@ The benchmark script supports these environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MODEL_NAME` | `qwen3-vl-32b` | Model identifier (e.g. `qwen3-8b`, `qwen3-vl-32b`) |
+| `MODEL_NAME` | `Qwen/Qwen3-VL-32B-Thinking` | HuggingFace model id (AIPerf validates this; use full id, e.g. `Qwen/Qwen2.5-7B-Instruct` for 8b) |
 | `ENDPOINT_URL` | `https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b` | Full chat endpoint URL including model path (path-based routing) |
 | `ENDPOINT_TYPE` | `chat` | Endpoint type (chat/completions/embeddings) |
 | `CONCURRENCY` | `10` | Number of concurrent requests |

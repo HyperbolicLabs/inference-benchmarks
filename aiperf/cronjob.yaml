@@ -46,9 +46,9 @@ spec:
               echo "=== Benchmark Complete ==="
               ls -lh /tmp/results/ || echo "No results directory"
             env:
-            # Path-based routing: full chat URL including model path (see llm-d-gaie HTTPRoute)
+            # Path-based routing: ENDPOINT_URL = full chat URL; MODEL_NAME = HuggingFace id (AIPerf validates it)
             - name: MODEL_NAME
-              value: "qwen3-vl-32b"
+              value: "Qwen/Qwen3-VL-32B-Thinking"
             - name: ENDPOINT_URL
               value: "https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b"
             - name: ENDPOINT_TYPE
