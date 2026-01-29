@@ -185,5 +185,5 @@ OSWorld evaluations can take hours:
 ## References
 
 - [OSWorld Repository](https://github.com/xlang-ai/OSWorld)
-- [run_multienv_qwen3vl.py](https://github.com/xlang-ai/OSWorld/blob/main/run_multienv_qwen3vl.py)
+- [run_multienv_qwen3vl.py](https://github.com/xlang-ai/OSWorld/blob/main/scripts/python/run_multienv_qwen3vl.py)
 - [Qwen3VLAgent Documentation](https://github.com/xlang-ai/OSWorld/tree/main/mm_agents)

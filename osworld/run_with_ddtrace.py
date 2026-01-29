@@ -29,7 +29,7 @@ Qwen3VLAgent.__init__ = patched_init
 if __name__ == "__main__":
     # The arguments passed to this script should be passed to run_multienv_qwen3vl.py
     # sys.argv[0] is the script name, rest are arguments
-    original_script = '/osworld/run_multienv_qwen3vl.py'
+    original_script = '/osworld/scripts/python/run_multienv_qwen3vl.py'
     
     # Read and execute the original script
     with open(original_script, 'r') as f:

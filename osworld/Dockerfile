@@ -169,4 +169,4 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /osworld
 
 # Default command (can be overridden)
-CMD ["python3", "run_multienv_qwen3vl.py", "--help"]
+CMD ["python3", "scripts/python/run_multienv_qwen3vl.py", "--help"]
