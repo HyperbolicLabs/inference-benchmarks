@@ -46,10 +46,11 @@ spec:
               echo "=== Benchmark Complete ==="
               ls -lh /tmp/results/ || echo "No results directory"
             env:
+            # Path-based routing: full chat URL including model path (see llm-d-gaie HTTPRoute)
             - name: MODEL_NAME
-              value: "Qwen/Qwen3-VL-32B-Thinking"
+              value: "qwen3-vl-32b"
             - name: ENDPOINT_URL
-              value: "https://inference.hyperbolic.ai"
+              value: "https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b"
             - name: ENDPOINT_TYPE
               value: "chat"
             # Cloudflare Access credentials (required for authentication)

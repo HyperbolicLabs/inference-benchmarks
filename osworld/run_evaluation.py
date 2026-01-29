@@ -144,6 +144,7 @@ def main():
     temperature = os.getenv("TEMPERATURE", "")
     
     # Create .env file for OSWorld
+    # Path-based routing: gateway expects /v1/chat/completions/<model>; set OPENAI_BASE_URL to include model path if your client sends model in path
     openai_base_url = os.getenv("OPENAI_BASE_URL", "http://infra-inference-scheduling-inference-gateway.llm-d.svc.cluster.local/v1")
     openai_api_key = os.getenv("OPENAI_API_KEY", "dummy-key")
     

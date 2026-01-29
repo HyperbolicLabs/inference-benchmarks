@@ -60,7 +60,7 @@ make status
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENAI_BASE_URL` | Internal gateway URL | Inference endpoint |
+| `OPENAI_BASE_URL` | Internal gateway URL (`.../v1`) | Inference endpoint. With path-based routing, include model path if your client sends it in the URL (e.g. `.../v1/chat/completions/qwen3-vl-32b`). |
 | `OPENAI_API_KEY` | `dummy-key` | API key (usually not needed) |
 | `MODEL_NAME` | `Qwen/Qwen3-VL-32B-Thinking` | Model identifier |
 | `PROVIDER_NAME` | `docker` | Desktop environment provider |

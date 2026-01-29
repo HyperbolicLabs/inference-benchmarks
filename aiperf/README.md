@@ -4,7 +4,7 @@ This directory contains the AIPerf benchmarking setup for the inference endpoint
 
 ## Overview
 
-The benchmark script runs performance tests against the inference API endpoint using AIPerf. It supports:
+The benchmark script runs performance tests against the inference API endpoint using AIPerf. **Path-based routing:** inference uses a single gateway (`inference.hyperbolic.ai`) with the model in the path; set `ENDPOINT_URL` to the full chat URL (e.g. `https://inference.hyperbolic.ai/v1/chat/completions/qwen3-8b` or `.../qwen3-vl-32b`). It supports:
 - Cloudflare Access authentication
 - Configurable concurrency and request counts
 - Streaming and non-streaming modes
@@ -131,8 +131,8 @@ The benchmark script supports these environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MODEL_NAME` | `Qwen/Qwen3-VL-32B-Thinking` | Model identifier |
-| `ENDPOINT_URL` | `https://inference.hyperbolic.ai` | API endpoint URL |
+| `MODEL_NAME` | `qwen3-vl-32b` | Model identifier (e.g. `qwen3-8b`, `qwen3-vl-32b`) |
+| `ENDPOINT_URL` | `https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b` | Full chat endpoint URL including model path (path-based routing) |
 | `ENDPOINT_TYPE` | `chat` | Endpoint type (chat/completions/embeddings) |
 | `CONCURRENCY` | `10` | Number of concurrent requests |
 | `REQUEST_COUNT` | `100` | Total number of requests |
