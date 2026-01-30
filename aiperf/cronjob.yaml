@@ -47,7 +47,7 @@ spec:
               ls -lh /tmp/results/ || echo "No results directory"
             env:
             # API gateway: ENDPOINT_URL = base chat URL; model is passed in request body by AIPerf.
-            # MODEL_NAME = value AIPerf sends as "model" in the request body (use HuggingFace id or API model id, e.g. qwen3-vl-32b, per API docs).
+            # MODEL_NAME = full HuggingFace id in body (verified: Qwen/Qwen3-VL-32B-Thinking returns 200; short id qwen3-vl-32b returns 400)
             - name: MODEL_NAME
               value: "Qwen/Qwen3-VL-32B-Thinking"
             - name: ENDPOINT_URL
@@ -74,10 +74,11 @@ spec:
                   name: cloudflare-access-credentials
                   key: client-secret
                   optional: true
-            # Concurrency: 3 to stay under api.hyperbolic.xyz rate limits (avoid 429 Too Many Requests)
-            # Higher concurrency caused 141k+ 429 (error 1015) from API/Cloudflare
+            # Concurrency: 1 to stay under api.hyperbolic.xyz/Cloudflare rate limits (avoid 429 error 1015)
+            # Verified: single POST /v1/chat/completions with model Qwen/Qwen3-VL-32B-Thinking returns 200
+            # CONCURRENCY=3 still caused ~93k 429s; reduce to 1 so requests succeed and latency metrics appear
             - name: CONCURRENCY
-              value: "3"
+              value: "1"
             # Use duration-based benchmarking (8 minutes) for sustained load
             # With 10-minute schedule, this creates 2-minute overlaps for continuous load
             - name: BENCHMARK_DURATION
