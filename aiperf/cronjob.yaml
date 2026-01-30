@@ -51,17 +51,17 @@ spec:
             - name: MODEL_NAME
               value: "Qwen/Qwen3-VL-32B-Thinking"
             - name: ENDPOINT_URL
-              value: "https://api.hyperbolic.ai/v1/chat/completions"
+              value: "https://api.hyperbolic.xyz/v1/chat/completions"
             - name: ENDPOINT_TYPE
               value: "chat"
-            # API key for api.hyperbolic.ai (get from dashboard; sign up / get API key)
+            # API key for api.hyperbolic.xyz (get from dashboard; sign up / get API key)
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: hyperbolic-api-key
                   key: api-key
                   optional: true
-            # Optional: Cloudflare Access for inference.hyperbolic.ai if switching back
+            # Optional: Cloudflare Access for inference.hyperbolic.xyz if switching back
             - name: CF_ACCESS_CLIENT_ID
               valueFrom:
                 secretKeyRef:

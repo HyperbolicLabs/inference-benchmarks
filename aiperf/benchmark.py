@@ -41,16 +41,16 @@ def run_benchmark(
     
     Args:
         model_name: Model identifier for AIPerf (must be valid HuggingFace id, e.g. "Qwen/Qwen3-VL-32B-Thinking")
-        endpoint_url: Chat endpoint URL (e.g. https://api.hyperbolic.ai/v1/chat/completions; model is passed in request body)
+        endpoint_url: Chat endpoint URL (e.g. https://api.hyperbolic.xyz/v1/chat/completions; model is passed in request body)
         endpoint_type: Type of endpoint (chat, completions, embeddings)
         concurrency: Number of concurrent requests
         request_count: Total number of requests
         streaming: Enable streaming
         output_dir: Directory for results
         output_tokens_mean: Mean number of output tokens per response
-        cf_access_client_id: Cloudflare Access Client ID (optional, for inference.hyperbolic.ai)
+        cf_access_client_id: Cloudflare Access Client ID (optional, for inference.hyperbolic.xyz)
         cf_access_client_secret: Cloudflare Access Client Secret (optional)
-        api_key: API key for Bearer auth (optional, for api.hyperbolic.ai)
+        api_key: API key for Bearer auth (optional, for api.hyperbolic.xyz)
         **kwargs: Additional AIPerf arguments
     
     Returns:
@@ -113,7 +113,7 @@ def run_benchmark(
     if output_tokens_mean is not None:
         cmd.extend(["--output-tokens-mean", str(output_tokens_mean)])
     
-    # Add auth: API key (Bearer) for api.hyperbolic.ai, else Cloudflare Access for inference.hyperbolic.ai
+    # Add auth: API key (Bearer) for api.hyperbolic.xyz, else Cloudflare Access for inference.hyperbolic.xyz
     if api_key:
         cmd.extend(["--header", f"Authorization: Bearer {api_key}"])
     elif cf_access_client_id and cf_access_client_secret:
@@ -342,7 +342,7 @@ def main():
     model_name = os.getenv("MODEL_NAME", "Qwen/Qwen3-VL-32B-Thinking")
     endpoint_url = os.getenv(
         "ENDPOINT_URL",
-        "https://api.hyperbolic.ai/v1/chat/completions",
+        "https://api.hyperbolic.xyz/v1/chat/completions",
     )
     endpoint_type = os.getenv("ENDPOINT_TYPE", "chat")
     concurrency = int(os.getenv("CONCURRENCY", "10"))
@@ -350,7 +350,7 @@ def main():
     streaming = os.getenv("STREAMING", "true").lower() == "true"
     output_dir = os.getenv("OUTPUT_DIR", "/tmp/aiperf-results")
     
-    # Auth: API key for api.hyperbolic.ai, or Cloudflare Access for inference.hyperbolic.ai
+    # Auth: API key for api.hyperbolic.xyz, or Cloudflare Access for inference.hyperbolic.xyz
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("HYPERBOLIC_API_KEY")
     cf_access_client_id = os.getenv("CF_ACCESS_CLIENT_ID")
     cf_access_client_secret = os.getenv("CF_ACCESS_CLIENT_SECRET")

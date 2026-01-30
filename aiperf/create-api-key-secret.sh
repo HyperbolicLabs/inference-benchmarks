@@ -1,5 +1,5 @@
 #!/bin/bash
-# Create Kubernetes secret for api.hyperbolic.ai API key (benchmarks).
+# Create Kubernetes secret for api.hyperbolic.xyz API key (benchmarks).
 # Usage: OPENAI_API_KEY=your-key ./create-api-key-secret.sh [NAMESPACE]
 #   or:  HYPERBOLIC_API_KEY=your-key ./create-api-key-secret.sh [NAMESPACE]
 # Never commit the key to the repo; use env var or paste when prompted.
@@ -39,4 +39,4 @@ kubectl create secret generic "$SECRET_NAME" \
     --dry-run=client -o yaml | kubectl apply -f -
 
 echo -e "${GREEN}✅ Secret ${SECRET_NAME} created/updated in ${NAMESPACE}${NC}"
-echo "   CronJob will use it for api.hyperbolic.ai auth."
+echo "   CronJob will use it for api.hyperbolic.xyz auth."
