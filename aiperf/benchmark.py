@@ -126,7 +126,14 @@ def run_benchmark(
             flag_name = key.replace('_', '-')
             cmd.extend([f"--{flag_name}", str(value)])
     
-    print(f"Running command: {' '.join(cmd)}")
+    # Redact API key in logged command (avoid leaking secrets)
+    cmd_safe = []
+    for part in cmd:
+        if "Authorization:" in part and "Bearer " in part and "***" not in part:
+            cmd_safe.append(part.split("Bearer ", 1)[0] + "Bearer ***")
+        else:
+            cmd_safe.append(part)
+    print(f"Running command: {' '.join(cmd_safe)}")
     print()
     
     # Prepare environment variables to disable TUI in non-interactive environments
