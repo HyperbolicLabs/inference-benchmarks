@@ -306,6 +306,38 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
                             metrics[f"{key}_{stat}"] = float(value[stat])
                         except (ValueError, TypeError):
                             pass
+        
+        # Extract error_summary so we send request/error counts even when 0 successful requests
+        # (dashboard can then show "last run had X errors" instead of empty)
+        error_summary = data.get("error_summary")
+        if isinstance(error_summary, list):
+            total_errors = 0
+            for item in error_summary:
+                if isinstance(item, dict):
+                    count = item.get("count", item.get("Count"))
+                    if count is not None:
+                        try:
+                            c = int(count)
+                            total_errors += c
+                            code = item.get("code", item.get("Code"))
+                            if code is not None:
+                                metrics[f"request_count_errors_{code}"] = float(c)
+                        except (ValueError, TypeError):
+                            pass
+            if total_errors > 0:
+                metrics["request_count_errors_total"] = float(total_errors)
+        elif isinstance(error_summary, dict):
+            # e.g. {"429": 93617, "404": 3318}
+            total_errors = 0
+            for code, count in error_summary.items():
+                try:
+                    c = int(count)
+                    total_errors += c
+                    metrics[f"request_count_errors_{code}"] = float(c)
+                except (ValueError, TypeError):
+                    pass
+            if total_errors > 0:
+                metrics["request_count_errors_total"] = float(total_errors)
                     
     except json.JSONDecodeError as e:
         print(f"⚠️  Invalid JSON in {json_file}: {e}")
