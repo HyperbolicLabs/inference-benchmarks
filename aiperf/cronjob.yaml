@@ -74,11 +74,10 @@ spec:
                   name: cloudflare-access-credentials
                   key: client-secret
                   optional: true
-            # Concurrency: Reduced to 10 to reduce number of workers and avoid PROFILE_START timeout
-            # Fewer workers = fewer services that need to respond to PROFILE_START command
-            # This helps avoid timeout issues where workers don't respond to PROFILE_START
+            # Concurrency: 3 to stay under api.hyperbolic.xyz rate limits (avoid 429 Too Many Requests)
+            # Higher concurrency caused 141k+ 429 (error 1015) from API/Cloudflare
             - name: CONCURRENCY
-              value: "10"
+              value: "3"
             # Use duration-based benchmarking (8 minutes) for sustained load
             # With 10-minute schedule, this creates 2-minute overlaps for continuous load
             - name: BENCHMARK_DURATION
