@@ -46,15 +46,22 @@ spec:
               echo "=== Benchmark Complete ==="
               ls -lh /tmp/results/ || echo "No results directory"
             env:
-            # Path-based routing: ENDPOINT_URL = full chat URL; MODEL_NAME = HuggingFace id (AIPerf validates it)
+            # API gateway: ENDPOINT_URL = base chat URL; model is passed in request body by AIPerf.
+            # MODEL_NAME = value AIPerf sends as "model" in the request body (use HuggingFace id or API model id, e.g. qwen3-vl-32b, per API docs).
             - name: MODEL_NAME
               value: "Qwen/Qwen3-VL-32B-Thinking"
             - name: ENDPOINT_URL
-              value: "https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b"
+              value: "https://api.hyperbolic.ai/v1/chat/completions"
             - name: ENDPOINT_TYPE
               value: "chat"
-            # Cloudflare Access credentials (required for authentication)
-            # Update these values with your actual Cloudflare Access service token credentials
+            # API key for api.hyperbolic.ai (get from dashboard; sign up / get API key)
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hyperbolic-api-key
+                  key: api-key
+                  optional: true
+            # Optional: Cloudflare Access for inference.hyperbolic.ai if switching back
             - name: CF_ACCESS_CLIENT_ID
               valueFrom:
                 secretKeyRef:

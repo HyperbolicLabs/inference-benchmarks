@@ -4,8 +4,9 @@ This directory contains the AIPerf benchmarking setup for the inference endpoint
 
 ## Overview
 
-The benchmark script runs performance tests against the inference API endpoint using AIPerf. **Path-based routing:** inference uses a single gateway (`inference.hyperbolic.ai`) with the model in the path; set `ENDPOINT_URL` to the full chat URL (e.g. `https://inference.hyperbolic.ai/v1/chat/completions/qwen3-8b` or `.../qwen3-vl-32b`). It supports:
-- Cloudflare Access authentication
+The benchmark script runs performance tests against the inference API endpoint using AIPerf. **API gateway (default):** benchmarks target `api.hyperbolic.ai` for full-stack overhead; set `ENDPOINT_URL` to `https://api.hyperbolic.ai/v1/chat/completions` and use API key auth (`OPENAI_API_KEY`). It supports:
+- API key authentication (Bearer) for api.hyperbolic.ai
+- Cloudflare Access for inference.hyperbolic.ai (optional)
 - Configurable concurrency and request counts
 - Streaming and non-streaming modes
 - Duration-based or count-based benchmarking
@@ -38,7 +39,20 @@ make build-push
 
 ### 2. Create Kubernetes Secret for Credentials
 
-The CronJob requires Cloudflare Access credentials stored in a Kubernetes secret.
+The CronJob uses **api.hyperbolic.ai** by default and requires an API key (get from dashboard / sign up).
+
+**API key (api.hyperbolic.ai, default):**
+```bash
+# From env (recommended; key never touches disk)
+OPENAI_API_KEY=your-key ./create-api-key-secret.sh
+
+# Or with kubectl (replace YOUR_API_KEY)
+kubectl create secret generic hyperbolic-api-key \
+  --from-literal=api-key="YOUR_API_KEY" \
+  -n inference-benchmark
+```
+
+**Optional: Cloudflare Access (inference.hyperbolic.ai):**
 
 **Option A: Using Makefile**
 ```bash
@@ -74,10 +88,26 @@ make deploy
 
 ### In Kubernetes (CronJob)
 
-The CronJob reads credentials from a Kubernetes secret:
+The CronJob uses **api.hyperbolic.ai** and reads the API key from a secret:
 
 ```yaml
 env:
+  - name: OPENAI_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: hyperbolic-api-key
+        key: api-key
+        optional: true
+```
+
+**Secret (api.hyperbolic.ai):**
+- Name: `hyperbolic-api-key`
+- Namespace: `inference-benchmark` (default)
+- Keys: `api-key` — your API key from the dashboard
+
+Optional Cloudflare Access (for inference.hyperbolic.ai):
+
+```yaml
   - name: CF_ACCESS_CLIENT_ID
     valueFrom:
       secretKeyRef:
@@ -92,24 +122,25 @@ env:
         optional: true
 ```
 
-**Secret Structure:**
-- Name: `cloudflare-access-credentials`
-- Namespace: `inference-benchmark` (default)
-- Keys:
-  - `client-id`: Cloudflare Access Client ID
-  - `client-secret`: Cloudflare Access Client Secret
-
 ### Locally (Testing)
 
-Set environment variables:
+For **api.hyperbolic.ai** (default):
+
+```bash
+export OPENAI_API_KEY="your-api-key"
+python3 benchmark.py
+```
+
+For **inference.hyperbolic.ai** (Cloudflare Access):
 
 ```bash
 export CF_ACCESS_CLIENT_ID="your-client-id"
 export CF_ACCESS_CLIENT_SECRET="your-client-secret"
+export ENDPOINT_URL="https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b"
 python3 benchmark.py
 ```
 
-Or use a credentials file:
+Or use a credentials file for Cloudflare Access:
 
 ```bash
 # Create cloudflare-access-credentials.txt
@@ -120,6 +151,7 @@ EOF
 
 # Source and run
 source cloudflare-access-credentials.txt
+export ENDPOINT_URL="https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b"
 python3 benchmark.py
 ```
 
@@ -132,13 +164,14 @@ The benchmark script supports these environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MODEL_NAME` | `Qwen/Qwen3-VL-32B-Thinking` | HuggingFace model id (AIPerf validates this; use full id, e.g. `Qwen/Qwen2.5-7B-Instruct` for 8b) |
-| `ENDPOINT_URL` | `https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b` | Full chat endpoint URL including model path (path-based routing) |
+| `ENDPOINT_URL` | `https://api.hyperbolic.ai/v1/chat/completions` | Chat endpoint URL (model passed in request body) |
 | `ENDPOINT_TYPE` | `chat` | Endpoint type (chat/completions/embeddings) |
 | `CONCURRENCY` | `10` | Number of concurrent requests |
 | `REQUEST_COUNT` | `100` | Total number of requests |
 | `STREAMING` | `true` | Enable streaming responses |
 | `OUTPUT_DIR` | `/tmp/aiperf-results` | Results directory |
-| `CF_ACCESS_CLIENT_ID` | - | Cloudflare Access Client ID (optional) |
+| `OPENAI_API_KEY` or `HYPERBOLIC_API_KEY` | - | API key for Bearer auth (api.hyperbolic.ai) |
+| `CF_ACCESS_CLIENT_ID` | - | Cloudflare Access Client ID (optional, inference.hyperbolic.ai) |
 | `CF_ACCESS_CLIENT_SECRET` | - | Cloudflare Access Client Secret (optional) |
 | `REQUEST_TIMEOUT` | - | Request timeout in seconds (optional) |
 | `OUTPUT_TOKENS_MEAN` | - | Mean output tokens per response (optional) |

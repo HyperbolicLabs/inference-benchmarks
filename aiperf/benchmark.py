@@ -33,6 +33,7 @@ def run_benchmark(
     output_tokens_mean: Optional[int] = None,
     cf_access_client_id: Optional[str] = None,
     cf_access_client_secret: Optional[str] = None,
+    api_key: Optional[str] = None,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -40,15 +41,16 @@ def run_benchmark(
     
     Args:
         model_name: Model identifier for AIPerf (must be valid HuggingFace id, e.g. "Qwen/Qwen3-VL-32B-Thinking")
-        endpoint_url: Full inference chat endpoint URL including model path (path-based routing, e.g. https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b)
+        endpoint_url: Chat endpoint URL (e.g. https://api.hyperbolic.ai/v1/chat/completions; model is passed in request body)
         endpoint_type: Type of endpoint (chat, completions, embeddings)
         concurrency: Number of concurrent requests
         request_count: Total number of requests
         streaming: Enable streaming
         output_dir: Directory for results
         output_tokens_mean: Mean number of output tokens per response
-        cf_access_client_id: Cloudflare Access Client ID (optional)
+        cf_access_client_id: Cloudflare Access Client ID (optional, for inference.hyperbolic.ai)
         cf_access_client_secret: Cloudflare Access Client Secret (optional)
+        api_key: API key for Bearer auth (optional, for api.hyperbolic.ai)
         **kwargs: Additional AIPerf arguments
     
     Returns:
@@ -71,7 +73,9 @@ def run_benchmark(
         print(f"Output Tokens Mean: {output_tokens_mean}")
     print(f"Streaming: {streaming}")
     print(f"Output Directory: {output_dir}")
-    if cf_access_client_id:
+    if api_key:
+        print(f"Auth: API key (Bearer)")
+    elif cf_access_client_id:
         print(f"Cloudflare Access: Enabled (Client ID: {cf_access_client_id[:20]}...)")
     print("=" * 60)
     print()
@@ -109,8 +113,10 @@ def run_benchmark(
     if output_tokens_mean is not None:
         cmd.extend(["--output-tokens-mean", str(output_tokens_mean)])
     
-    # Add Cloudflare Access headers if provided
-    if cf_access_client_id and cf_access_client_secret:
+    # Add auth: API key (Bearer) for api.hyperbolic.ai, else Cloudflare Access for inference.hyperbolic.ai
+    if api_key:
+        cmd.extend(["--header", f"Authorization: Bearer {api_key}"])
+    elif cf_access_client_id and cf_access_client_secret:
         cmd.extend(["--header", f"CF-Access-Client-Id: {cf_access_client_id}"])
         cmd.extend(["--header", f"CF-Access-Client-Secret: {cf_access_client_secret}"])
     
@@ -324,12 +330,12 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
 def main():
     """Main entry point for the benchmark script."""
     # Get configuration from environment variables or use defaults
-    # Path-based routing: ENDPOINT_URL must be the full chat URL including model path.
+    # API gateway: ENDPOINT_URL is base chat URL; model is passed in request body by AIPerf.
     # MODEL_NAME is passed to AIPerf --model (must be a valid HuggingFace model id for dataset/config).
     model_name = os.getenv("MODEL_NAME", "Qwen/Qwen3-VL-32B-Thinking")
     endpoint_url = os.getenv(
         "ENDPOINT_URL",
-        "https://inference.hyperbolic.ai/v1/chat/completions/qwen3-vl-32b",
+        "https://api.hyperbolic.ai/v1/chat/completions",
     )
     endpoint_type = os.getenv("ENDPOINT_TYPE", "chat")
     concurrency = int(os.getenv("CONCURRENCY", "10"))
@@ -337,7 +343,8 @@ def main():
     streaming = os.getenv("STREAMING", "true").lower() == "true"
     output_dir = os.getenv("OUTPUT_DIR", "/tmp/aiperf-results")
     
-    # Cloudflare Access credentials (optional)
+    # Auth: API key for api.hyperbolic.ai, or Cloudflare Access for inference.hyperbolic.ai
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("HYPERBOLIC_API_KEY")
     cf_access_client_id = os.getenv("CF_ACCESS_CLIENT_ID")
     cf_access_client_secret = os.getenv("CF_ACCESS_CLIENT_SECRET")
     
@@ -368,6 +375,7 @@ def main():
         output_dir=output_dir,
         cf_access_client_id=cf_access_client_id,
         cf_access_client_secret=cf_access_client_secret,
+        api_key=api_key,
         **kwargs
     )
     
