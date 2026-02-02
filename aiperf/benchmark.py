@@ -13,10 +13,27 @@ import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+import re
 
 # Add common directory to path
 sys.path.insert(0, '/scripts/common')
 from datadog_utils import send_metrics_async
+
+
+def _normalize_endpoint_url(url: str) -> str:
+    """Normalize endpoint URL to base only so AIPerf does not double-append path.
+
+    AIPerf appends the endpoint path (e.g. /v1/chat/completions) to --url. If --url
+    already contains that path, the request goes to /v1/chat/completions/v1/chat/completions → 404.
+    Strip known paths so both "https://api.hyperbolic.xyz" and
+    "https://api.hyperbolic.xyz/v1/chat/completions" result in base URL only.
+    """
+    url = (url or "").rstrip("/")
+    # Strip trailing path if it matches OpenAI-style chat/completions path
+    for suffix in ("/v1/chat/completions", "/v1/completions", "/v1/embeddings"):
+        if url.lower().endswith(suffix):
+            return url[: -len(suffix)].rstrip("/") or url
+    return url
 
 
 def run_benchmark(
@@ -168,14 +185,20 @@ def run_benchmark(
         print("✅ Benchmark completed successfully")
         print(f"Results saved to: {output_dir}")
         
-        # Parse results if available
+        # Parse results if available; redact API key from stdout (AIPerf may echo full CLI command)
+        stdout_safe = result.stdout
+        if api_key and api_key in stdout_safe:
+            stdout_safe = stdout_safe.replace(api_key, "***REDACTED***")
+        # Also redact Bearer sk_... patterns in case key appears in other forms
+        stdout_safe = re.sub(r"Bearer\s+sk_[^\s'\"]+", "Bearer ***", stdout_safe, flags=re.IGNORECASE)
+
         results = {
             "status": "success",
             "timestamp": datetime.utcnow().isoformat(),
             "model": model_name,
             "endpoint": endpoint_url,
             "output_dir": output_dir,
-            "stdout": result.stdout,
+            "stdout": stdout_safe,
         }
         
         # Try to find and parse result files
@@ -211,12 +234,16 @@ def run_benchmark(
             print("   - AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT")
             print("   - AIPERF_DATASET_CONFIGURATION_TIMEOUT")
         
+        stdout_safe = (e.stdout or "")
+        if api_key and api_key in stdout_safe:
+            stdout_safe = stdout_safe.replace(api_key, "***REDACTED***")
+        stdout_safe = re.sub(r"Bearer\s+sk_[^\s'\"]+", "Bearer ***", stdout_safe, flags=re.IGNORECASE)
         return {
             "status": "error",
             "timestamp": datetime.utcnow().isoformat(),
             "error": error_msg,
             "exit_code": e.returncode,
-            "stdout": e.stdout,
+            "stdout": stdout_safe,
             "stderr": e.stderr,
             "result_files": [str(f) for f in result_files] if result_files else None,
         }
@@ -369,12 +396,15 @@ def parse_aiperf_results(result_dir: str) -> Dict[str, float]:
 def main():
     """Main entry point for the benchmark script."""
     # Get configuration from environment variables or use defaults
-    # API gateway: ENDPOINT_URL is base chat URL; model is passed in request body by AIPerf.
-    # MODEL_NAME is passed to AIPerf --model (must be a valid HuggingFace model id for dataset/config).
+    # API gateway: ENDPOINT_URL must be BASE URL only (e.g. https://api.hyperbolic.xyz).
+    # AIPerf appends /v1/chat/completions from endpoint-type; if you pass full URL you get double path → 404.
+    # We normalize full URLs to base so both "https://api.hyperbolic.xyz" and "https://api.hyperbolic.xyz/v1/chat/completions" work.
     model_name = os.getenv("MODEL_NAME", "Qwen/Qwen3-VL-32B-Thinking")
-    endpoint_url = os.getenv(
-        "ENDPOINT_URL",
-        "https://api.hyperbolic.xyz/v1/chat/completions",
+    endpoint_url = _normalize_endpoint_url(
+        os.getenv(
+            "ENDPOINT_URL",
+            "https://api.hyperbolic.xyz",
+        )
     )
     endpoint_type = os.getenv("ENDPOINT_TYPE", "chat")
     concurrency = int(os.getenv("CONCURRENCY", "10"))

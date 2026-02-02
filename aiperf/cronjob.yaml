@@ -46,12 +46,12 @@ spec:
               echo "=== Benchmark Complete ==="
               ls -lh /tmp/results/ || echo "No results directory"
             env:
-            # API gateway: ENDPOINT_URL = base chat URL; model is passed in request body by AIPerf.
+            # API gateway: ENDPOINT_URL = BASE URL only. AIPerf appends /v1/chat/completions; full URL causes double path → 404.
             # MODEL_NAME = full HuggingFace id in body (verified: Qwen/Qwen3-VL-32B-Thinking returns 200; short id qwen3-vl-32b returns 400)
             - name: MODEL_NAME
               value: "Qwen/Qwen3-VL-32B-Thinking"
             - name: ENDPOINT_URL
-              value: "https://api.hyperbolic.xyz/v1/chat/completions"
+              value: "https://api.hyperbolic.xyz"
             - name: ENDPOINT_TYPE
               value: "chat"
             # API key for api.hyperbolic.xyz (get from dashboard; sign up / get API key)
