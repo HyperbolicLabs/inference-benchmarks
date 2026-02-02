@@ -95,8 +95,9 @@ spec:
             # Keep request_count as a safety limit (will be ignored if benchmark_duration is set)
             - name: REQUEST_COUNT
               value: "10000"
+            # Non-streaming: if API returns 429/5xx at HTTP level when rate-limited, AIPerf records it instead of ValueError from stream error objects
             - name: STREAMING
-              value: "true"
+              value: "false"
             - name: OUTPUT_DIR
               value: "/tmp/results"
             # Environment variables to disable TUI in non-interactive Kubernetes environment
