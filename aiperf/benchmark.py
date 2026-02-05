@@ -129,6 +129,8 @@ def run_benchmark(
     
     if output_tokens_mean is not None:
         cmd.extend(["--output-tokens-mean", str(output_tokens_mean)])
+        # Send max_tokens in request body (not max_completion_tokens) so backends and gateways apply the limit
+        cmd.append("--use-legacy-max-tokens")
     
     # Add auth: API key (Bearer) for api.hyperbolic.xyz, else Cloudflare Access for inference.hyperbolic.xyz
     if api_key:

@@ -190,7 +190,7 @@ Two **staggered** CronJobs run sequentially (no parallel load on the backend):
 - **Duration**: 8 minutes per benchmark
 - **Concurrency**: 1 (avoids 429s from api.hyperbolic.xyz/Cloudflare)
 - **Timeout**: 60 seconds per request
-- **Output Tokens**: Mean of 50 tokens per response
+- **Output Tokens**: Mean of 50 tokens per response. When `OUTPUT_TOKENS_MEAN` is set, the script also passes `--use-legacy-max-tokens` so the request uses `max_tokens` (not `max_completion_tokens`), ensuring both api and inference backends apply the limit.
 
 In Datadog, use the **endpoint** template variable to filter by `https://api.hyperbolic.xyz` or `https://inference.hyperbolic.ai`.
 

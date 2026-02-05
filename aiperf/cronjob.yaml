@@ -161,24 +161,17 @@ spec:
                   value: "https://inference.hyperbolic.ai"
                 - name: ENDPOINT_TYPE
                   value: "chat"
-                - name: OPENAI_API_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: hyperbolic-api-key
-                      key: api-key
-                      optional: true
+                # inference.hyperbolic.ai uses Cloudflare Access (no OPENAI_API_KEY)
                 - name: CF_ACCESS_CLIENT_ID
                   valueFrom:
                     secretKeyRef:
                       name: cloudflare-access-credentials
                       key: client-id
-                      optional: true
                 - name: CF_ACCESS_CLIENT_SECRET
                   valueFrom:
                     secretKeyRef:
                       name: cloudflare-access-credentials
                       key: client-secret
-                      optional: true
                 - name: CONCURRENCY
                   value: "1"
                 - name: BENCHMARK_DURATION
