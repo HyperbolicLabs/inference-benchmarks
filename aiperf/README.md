@@ -180,12 +180,19 @@ The benchmark script supports these environment variables:
 
 ### CronJob Configuration
 
-The CronJob is configured with:
-- **Schedule**: Every 10 minutes (`*/10 * * * *`)
+Two **staggered** CronJobs run sequentially (no parallel load on the backend):
+
+| CronJob | Endpoint | Schedule |
+|---------|----------|----------|
+| `aiperf-benchmark-api` | https://api.hyperbolic.xyz | `0,20,40 * * * *` (:00, :20, :40) |
+| `aiperf-benchmark-inference` | https://inference.hyperbolic.ai | `10,30,50 * * * *` (:10, :30, :50) |
+
 - **Duration**: 8 minutes per benchmark
-- **Concurrency**: 20 requests
+- **Concurrency**: 1 (avoids 429s from api.hyperbolic.xyz/Cloudflare)
 - **Timeout**: 60 seconds per request
 - **Output Tokens**: Mean of 50 tokens per response
+
+In Datadog, use the **endpoint** template variable to filter by `https://api.hyperbolic.xyz` or `https://inference.hyperbolic.ai`.
 
 ## Makefile Targets
 

@@ -1,21 +1,18 @@
+# Two CronJobs run sequentially (staggered) so both endpoints are benchmarked without
+# doubling load. api.hyperbolic.xyz at :00,:20,:40; inference.hyperbolic.ai at :10,:30,:50.
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: aiperf-benchmark
+  name: aiperf-benchmark-api
   namespace: inference-benchmark
   labels:
     app: aiperf
     component: benchmark
+    endpoint: api.hyperbolic.xyz
 spec:
-  # Run every 9 minutes with 8-minute benchmarks for continuous load
-  # This ensures no gaps while preventing overlap (1 minute buffer)
-  schedule: "*/9 * * * *"
-  # Prevent multiple jobs from running simultaneously
-  # If a job is still running when the next schedule time arrives, skip it
+  schedule: "0,20,40 * * * *"
   concurrencyPolicy: Forbid
-  # Keep only recent job history to avoid resource accumulation
-  # 5 successful jobs = ~50 minutes of history
-  # 3 failed jobs = enough to debug issues
   successfulJobsHistoryLimit: 5
   failedJobsHistoryLimit: 3
   jobTemplate:
@@ -28,120 +25,208 @@ spec:
         spec:
           restartPolicy: OnFailure
           imagePullSecrets:
-          - name: ghcr-image-pull-secret
+            - name: ghcr-image-pull-secret
           containers:
-          - name: aiperf
-            # AIPerf benchmarking image from GitHub Container Registry
-            # Build and push with: cd scripts/aiperf && make build-push
-            image: ghcr.io/hyperboliclabs/aiperf:latest
-            imagePullPolicy: Always
-            command:
-            - /bin/sh
-            - -c
-            - |
-              set -e
-              echo "=== Running AIPerf Benchmark ==="
-              python3 /scripts/benchmark.py
-              
-              echo "=== Benchmark Complete ==="
-              ls -lh /tmp/results/ || echo "No results directory"
-            env:
-            # API gateway: ENDPOINT_URL = BASE URL only. AIPerf appends /v1/chat/completions; full URL causes double path → 404.
-            # MODEL_NAME = full HuggingFace id in body (verified: Qwen/Qwen3-VL-32B-Thinking returns 200; short id qwen3-vl-32b returns 400)
-            - name: MODEL_NAME
-              value: "Qwen/Qwen3-VL-32B-Thinking"
-            - name: ENDPOINT_URL
-              value: "https://api.hyperbolic.xyz"
-            - name: ENDPOINT_TYPE
-              value: "chat"
-            # API key for api.hyperbolic.xyz (get from dashboard; sign up / get API key)
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: hyperbolic-api-key
-                  key: api-key
-                  optional: true
-            # Optional: Cloudflare Access for inference.hyperbolic.xyz if switching back
-            - name: CF_ACCESS_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: cloudflare-access-credentials
-                  key: client-id
-                  optional: true
-            - name: CF_ACCESS_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: cloudflare-access-credentials
-                  key: client-secret
-                  optional: true
-            # Concurrency: 1 to stay under api.hyperbolic.xyz/Cloudflare rate limits (avoid 429 error 1015)
-            # Verified: single POST /v1/chat/completions with model Qwen/Qwen3-VL-32B-Thinking returns 200
-            # CONCURRENCY=3 still caused ~93k 429s; reduce to 1 so requests succeed and latency metrics appear
-            - name: CONCURRENCY
-              value: "1"
-            # Use duration-based benchmarking (8 minutes) for sustained load
-            # With 10-minute schedule, this creates 2-minute overlaps for continuous load
-            - name: BENCHMARK_DURATION
-              value: "480"
-            - name: BENCHMARK_GRACE_PERIOD
-              value: "30"
-            # Request timeout: 60 seconds per request (prevents hanging)
-            - name: REQUEST_TIMEOUT
-              value: "60"
-            # Output token limit: Mean of 50 tokens per response for consistent benchmarking
-            # This prevents unbounded responses and makes results more predictable
-            - name: OUTPUT_TOKENS_MEAN
-              value: "50"
-            # Keep request_count as a safety limit (will be ignored if benchmark_duration is set)
-            - name: REQUEST_COUNT
-              value: "10000"
-            - name: STREAMING
-              value: "true"
-            - name: OUTPUT_DIR
-              value: "/tmp/results"
-            # Environment variables to disable TUI in non-interactive Kubernetes environment
-            - name: TERM
-              value: "dumb"
-            - name: CI
-              value: "true"
-            - name: NO_COLOR
-              value: "1"
-            - name: PYTHONUNBUFFERED
-              value: "1"
-            # AIPerf timeout configuration to prevent timeout errors during service startup
-            # These timeouts control how long AIPerf waits for services to respond
-            # Increased values help in Kubernetes environments with resource constraints
-            - name: AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT
-              value: "600.0"  # 10 minutes for configuration (default: 300s)
-            - name: AIPERF_SERVICE_PROFILE_START_TIMEOUT
-              value: "300.0"  # 5 minutes for start profiling (default: 60s, increased for Kubernetes)
-            - name: AIPERF_DATASET_CONFIGURATION_TIMEOUT
-              value: "600.0"  # 10 minutes for dataset config (default: 300s)
-            # Datadog API key for metrics export (optional)
-            - name: DD_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: datadog-api-key
-                  key: api-key
-                  optional: true
-            # Datadog site configuration (defaults to US if not set)
-            - name: DD_SITE
-              value: "us5.datadoghq.com"  # Matches cluster Datadog configuration
-            volumeMounts:
-            - name: results
-              mountPath: /tmp/results
-            resources:
-              requests:
-                memory: "2Gi"      # Increased: AIPerf needs more memory for processing
-                cpu: "200m"        # Reduced: Mostly waiting for HTTP responses
-              limits:
-                memory: "4Gi"      # Increased: More headroom for parsing and metrics
-                cpu: "1000m"       # Reduced: Burst capacity for metric processing
+            - name: aiperf
+              image: ghcr.io/hyperboliclabs/aiperf:latest
+              imagePullPolicy: Always
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  echo "=== Running AIPerf Benchmark (api.hyperbolic.xyz) ==="
+                  python3 /scripts/benchmark.py
+                  echo "=== Benchmark Complete ==="
+                  ls -lh /tmp/results/ || echo "No results directory"
+              env:
+                - name: MODEL_NAME
+                  value: "Qwen/Qwen3-VL-32B-Thinking"
+                - name: ENDPOINT_URL
+                  value: "https://api.hyperbolic.xyz"
+                - name: ENDPOINT_TYPE
+                  value: "chat"
+                - name: OPENAI_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: hyperbolic-api-key
+                      key: api-key
+                      optional: true
+                - name: CF_ACCESS_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: cloudflare-access-credentials
+                      key: client-id
+                      optional: true
+                - name: CF_ACCESS_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: cloudflare-access-credentials
+                      key: client-secret
+                      optional: true
+                - name: CONCURRENCY
+                  value: "1"
+                - name: BENCHMARK_DURATION
+                  value: "480"
+                - name: BENCHMARK_GRACE_PERIOD
+                  value: "30"
+                - name: REQUEST_TIMEOUT
+                  value: "60"
+                - name: OUTPUT_TOKENS_MEAN
+                  value: "50"
+                - name: REQUEST_COUNT
+                  value: "10000"
+                - name: STREAMING
+                  value: "true"
+                - name: OUTPUT_DIR
+                  value: "/tmp/results"
+                - name: TERM
+                  value: "dumb"
+                - name: CI
+                  value: "true"
+                - name: NO_COLOR
+                  value: "1"
+                - name: PYTHONUNBUFFERED
+                  value: "1"
+                - name: AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT
+                  value: "600.0"
+                - name: AIPERF_SERVICE_PROFILE_START_TIMEOUT
+                  value: "300.0"
+                - name: AIPERF_DATASET_CONFIGURATION_TIMEOUT
+                  value: "600.0"
+                - name: DD_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: datadog-api-key
+                      key: api-key
+                      optional: true
+                - name: DD_SITE
+                  value: "us5.datadoghq.com"
+              volumeMounts:
+                - name: results
+                  mountPath: /tmp/results
+              resources:
+                requests:
+                  memory: "2Gi"
+                  cpu: "200m"
+                limits:
+                  memory: "4Gi"
+                  cpu: "1000m"
           volumes:
-          - name: results
-            # Use emptyDir to avoid NFS mount issues
-            # Results are ephemeral but benchmark metrics go to Datadog
-            emptyDir: {}
-            # Optional: Use PVC for persistent results
-            # persistentVolumeClaim:
-            #   claimName: aiperf-results
+            - name: results
+              emptyDir: {}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: aiperf-benchmark-inference
+  namespace: inference-benchmark
+  labels:
+    app: aiperf
+    component: benchmark
+    endpoint: inference.hyperbolic.ai
+spec:
+  schedule: "10,30,50 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: aiperf
+            component: benchmark
+        spec:
+          restartPolicy: OnFailure
+          imagePullSecrets:
+            - name: ghcr-image-pull-secret
+          containers:
+            - name: aiperf
+              image: ghcr.io/hyperboliclabs/aiperf:latest
+              imagePullPolicy: Always
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  echo "=== Running AIPerf Benchmark (inference.hyperbolic.ai) ==="
+                  python3 /scripts/benchmark.py
+                  echo "=== Benchmark Complete ==="
+                  ls -lh /tmp/results/ || echo "No results directory"
+              env:
+                - name: MODEL_NAME
+                  value: "Qwen/Qwen3-VL-32B-Thinking"
+                - name: ENDPOINT_URL
+                  value: "https://inference.hyperbolic.ai"
+                - name: ENDPOINT_TYPE
+                  value: "chat"
+                - name: OPENAI_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: hyperbolic-api-key
+                      key: api-key
+                      optional: true
+                - name: CF_ACCESS_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: cloudflare-access-credentials
+                      key: client-id
+                      optional: true
+                - name: CF_ACCESS_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: cloudflare-access-credentials
+                      key: client-secret
+                      optional: true
+                - name: CONCURRENCY
+                  value: "1"
+                - name: BENCHMARK_DURATION
+                  value: "480"
+                - name: BENCHMARK_GRACE_PERIOD
+                  value: "30"
+                - name: REQUEST_TIMEOUT
+                  value: "60"
+                - name: OUTPUT_TOKENS_MEAN
+                  value: "50"
+                - name: REQUEST_COUNT
+                  value: "10000"
+                - name: STREAMING
+                  value: "true"
+                - name: OUTPUT_DIR
+                  value: "/tmp/results"
+                - name: TERM
+                  value: "dumb"
+                - name: CI
+                  value: "true"
+                - name: NO_COLOR
+                  value: "1"
+                - name: PYTHONUNBUFFERED
+                  value: "1"
+                - name: AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT
+                  value: "600.0"
+                - name: AIPERF_SERVICE_PROFILE_START_TIMEOUT
+                  value: "300.0"
+                - name: AIPERF_DATASET_CONFIGURATION_TIMEOUT
+                  value: "600.0"
+                - name: DD_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: datadog-api-key
+                      key: api-key
+                      optional: true
+                - name: DD_SITE
+                  value: "us5.datadoghq.com"
+              volumeMounts:
+                - name: results
+                  mountPath: /tmp/results
+              resources:
+                requests:
+                  memory: "2Gi"
+                  cpu: "200m"
+                limits:
+                  memory: "4Gi"
+                  cpu: "1000m"
+          volumes:
+            - name: results
+              emptyDir: {}
