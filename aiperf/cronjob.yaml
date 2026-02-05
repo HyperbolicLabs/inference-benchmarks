@@ -65,7 +65,7 @@ spec:
                       key: client-secret
                       optional: true
                 - name: CONCURRENCY
-                  value: "1"
+                  value: "10"
                 - name: BENCHMARK_DURATION
                   value: "480"
                 - name: BENCHMARK_GRACE_PERIOD
@@ -173,7 +173,7 @@ spec:
                       name: cloudflare-access-credentials
                       key: client-secret
                 - name: CONCURRENCY
-                  value: "1"
+                  value: "10"
                 - name: BENCHMARK_DURATION
                   value: "480"
                 - name: BENCHMARK_GRACE_PERIOD
