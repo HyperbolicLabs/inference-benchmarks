@@ -1,5 +1,9 @@
 # Two CronJobs run sequentially (staggered) so both endpoints are benchmarked without
 # doubling load. api.hyperbolic.xyz at :00,:20,:40; inference.hyperbolic.ai at :10,:30,:50.
+#
+# Workload is identical for both (same model, concurrency, duration, output tokens, timeout,
+# streaming). Only ENDPOINT_URL and auth differ (api = Bearer key, inference = Cloudflare Access).
+# This keeps endpoint performance comparison in Datadog apples-to-apples.
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -11,6 +15,7 @@ metadata:
     component: benchmark
     endpoint: api.hyperbolic.xyz
 spec:
+  suspend: true  # set to false to resume benchmarks
   schedule: "0,20,40 * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 5
@@ -126,6 +131,7 @@ metadata:
     component: benchmark
     endpoint: inference.hyperbolic.ai
 spec:
+  suspend: true  # set to false to resume benchmarks
   schedule: "10,30,50 * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 5
