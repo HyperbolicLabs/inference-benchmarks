@@ -29,17 +29,37 @@ spec:
             component: benchmark
         spec:
           restartPolicy: OnFailure
+          # The benchmark never talks to the Kubernetes API, but a token was
+          # mounted into it by default — readable by anything that could run code
+          # in the container, and usable against the cluster.
+          automountServiceAccountToken: false
+          # Nothing here needs root. `fsGroup` matches the GID created in
+          # aiperf/Dockerfile so the results volume remains writable.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
           imagePullSecrets:
             - name: ghcr-image-pull-secret
           containers:
             - name: aiperf
               image: ghcr.io/hyperboliclabs/aiperf:latest
               imagePullPolicy: Always
+              # `readOnlyRootFilesystem` is deliberately not set: aiperf writes
+              # scratch files outside the mounted results directory, so enabling
+              # it needs an additional emptyDir over /tmp and a verified run.
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
               command:
                 - /bin/sh
                 - -c
                 - |
-                  set -e
+                  set -eu
                   echo "=== Running AIPerf Benchmark (api.hyperbolic.xyz) ==="
                   python3 /scripts/benchmark.py
                   echo "=== Benchmark Complete ==="
@@ -145,17 +165,31 @@ spec:
             component: benchmark
         spec:
           restartPolicy: OnFailure
+          # See the api CronJob above: no Kubernetes API access is needed, and the
+          # workload runs as an unprivileged user with a matching fsGroup.
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
           imagePullSecrets:
             - name: ghcr-image-pull-secret
           containers:
             - name: aiperf
               image: ghcr.io/hyperboliclabs/aiperf:latest
               imagePullPolicy: Always
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
               command:
                 - /bin/sh
                 - -c
                 - |
-                  set -e
+                  set -eu
                   echo "=== Running AIPerf Benchmark (inference.hyperbolic.ai) ==="
                   python3 /scripts/benchmark.py
                   echo "=== Benchmark Complete ==="

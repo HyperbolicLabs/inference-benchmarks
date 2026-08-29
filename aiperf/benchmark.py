@@ -8,16 +8,136 @@ import os
 import sys
 import subprocess
 import json
-import time
-import threading
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, Dict, Any, List
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any, Iterable, Set
 import re
 
 # Add common directory to path
 sys.path.insert(0, '/scripts/common')
 from datadog_utils import send_metrics_async
+
+
+# Header names whose values are credentials and must never reach stdout, log
+# aggregation, or the returned result payload. Matching is case-insensitive
+# because AIPerf echoes the CLI arguments back verbatim.
+SENSITIVE_HEADER_NAMES = (
+    "authorization",
+    "cf-access-client-secret",
+    "cf-access-client-id",
+    "x-api-key",
+    "api-key",
+    "proxy-authorization",
+)
+
+REDACTED = "***REDACTED***"
+
+
+def _utc_now_iso() -> str:
+    """Return the current UTC time as a timezone-aware ISO-8601 string.
+
+    `datetime.utcnow()` returns a naive datetime and is deprecated as of Python
+    3.12, which makes the emitted timestamps ambiguous once they are ingested by
+    downstream systems. Using an explicit UTC offset keeps them unambiguous.
+    """
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _redact_header_argument(part: str) -> str:
+    """Redact the value of a `Name: value` header argument if the name is sensitive.
+
+    Returns the argument unchanged when it is not a sensitive header, so the
+    logged command line stays useful for debugging.
+    """
+    if ":" not in part:
+        return part
+    name, _, _value = part.partition(":")
+    if name.strip().lower() in SENSITIVE_HEADER_NAMES:
+        return f"{name}: {REDACTED}"
+    return part
+
+
+def _collect_secret_values(*values: Optional[str]) -> Set[str]:
+    """Build the set of literal secret values that must be scrubbed from output.
+
+    Short values are ignored: replacing a 1-3 character string would corrupt
+    unrelated output without providing any protection.
+    """
+    return {value for value in values if value and len(value) >= 4}
+
+
+def _redact_secrets(text: Optional[str], secrets: Iterable[str]) -> str:
+    """Remove credentials from captured process output.
+
+    Two passes are applied:
+      1. Literal replacement of every known secret value. This covers the case
+         where AIPerf echoes the resolved CLI arguments.
+      2. Pattern-based replacement of `Name: value` header pairs and bearer
+         tokens, which covers secrets that are not known to this process (for
+         example values injected by a wrapper or read from a config file).
+    """
+    if not text:
+        return ""
+
+    redacted = text
+    for secret in secrets:
+        redacted = redacted.replace(secret, REDACTED)
+
+    # Scrub any sensitive header that appears as "Name: value" in the output.
+    # The lookahead is anchored immediately after the colon so an already
+    # redacted value cannot be matched again — otherwise the greedy value class
+    # would swallow the remainder of the line on every subsequent pass.
+    header_pattern = re.compile(
+        r"(?i)\b(" + "|".join(re.escape(name) for name in SENSITIVE_HEADER_NAMES) + r")"
+        r"\s*:(?![ \t]*" + re.escape(REDACTED) + r")[ \t]*[^\r\n'\"]+"
+    )
+    redacted = header_pattern.sub(lambda m: f"{m.group(1)}: {REDACTED}", redacted)
+
+    # Scrub bearer tokens that may appear without the header name attached.
+    redacted = re.sub(
+        r"(?i)\bBearer(?![ \t]*" + re.escape(REDACTED) + r")[ \t]+[A-Za-z0-9._\-]{4,}",
+        f"Bearer {REDACTED}",
+        redacted,
+    )
+
+    return redacted
+
+
+def _resolve_subprocess_timeout(
+    benchmark_duration: Optional[int],
+    benchmark_grace_period: Optional[int],
+) -> Optional[float]:
+    """Compute the wall-clock ceiling for the AIPerf child process, in seconds.
+
+    Resolution order:
+      1. `AIPERF_SUBPROCESS_TIMEOUT` if set (`0` or a negative value disables the
+         timeout entirely, preserving the previous unbounded behaviour for
+         operators who rely on it).
+      2. `benchmark_duration` plus `benchmark_grace_period` plus a startup and
+         teardown margin, when a duration-bounded run was requested.
+      3. `AIPERF_DEFAULT_TIMEOUT_SECONDS` (default 4 hours) for request-count
+         runs, whose duration cannot be predicted ahead of time.
+    """
+    override = os.getenv("AIPERF_SUBPROCESS_TIMEOUT")
+    if override:
+        try:
+            value = float(override)
+        except ValueError:
+            print(f"⚠️  Ignoring invalid AIPERF_SUBPROCESS_TIMEOUT={override!r}")
+        else:
+            return None if value <= 0 else value
+
+    # Margin covers AIPerf's own startup/dataset-configuration timeouts plus
+    # artifact export after the measured window closes.
+    startup_and_teardown_margin = 900.0
+
+    if benchmark_duration is not None:
+        return float(benchmark_duration) + float(benchmark_grace_period or 0) + startup_and_teardown_margin
+
+    try:
+        return float(os.getenv("AIPERF_DEFAULT_TIMEOUT_SECONDS", "14400"))
+    except ValueError:
+        return 14400.0
 
 
 def _normalize_endpoint_url(url: str) -> str:
@@ -91,9 +211,12 @@ def run_benchmark(
     print(f"Streaming: {streaming}")
     print(f"Output Directory: {output_dir}")
     if api_key:
-        print(f"Auth: API key (Bearer)")
+        print("Auth: API key (Bearer)")
     elif cf_access_client_id:
-        print(f"Cloudflare Access: Enabled (Client ID: {cf_access_client_id[:20]}...)")
+        # Never print any portion of the credential, not even a prefix: the
+        # client ID is half of a service-token pair and log aggregators retain
+        # this output far longer than the credential rotation window.
+        print("Cloudflare Access: Enabled (service token)")
     print("=" * 60)
     print()
     
@@ -145,15 +268,16 @@ def run_benchmark(
             flag_name = key.replace('_', '-')
             cmd.extend([f"--{flag_name}", str(value)])
     
-    # Redact API key in logged command (avoid leaking secrets)
-    cmd_safe = []
-    for part in cmd:
-        if "Authorization:" in part and "Bearer " in part and "***" not in part:
-            cmd_safe.append(part.split("Bearer ", 1)[0] + "Bearer ***")
-        else:
-            cmd_safe.append(part)
+    # Redact every sensitive header value in the logged command. The previous
+    # implementation only handled "Authorization: Bearer ...", which left the
+    # Cloudflare Access service-token secret in plain text in pod logs.
+    cmd_safe = [_redact_header_argument(part) for part in cmd]
     print(f"Running command: {' '.join(cmd_safe)}")
     print()
+
+    # Every literal secret this process knows about, used to scrub captured
+    # output before it is printed or returned to the caller.
+    secret_values = _collect_secret_values(api_key, cf_access_client_secret, cf_access_client_id)
     
     # Prepare environment variables to disable TUI in non-interactive environments
     env = os.environ.copy()
@@ -169,6 +293,16 @@ def run_benchmark(
     env.setdefault('AIPERF_SERVICE_PROFILE_START_TIMEOUT', '300.0')  # 5 minutes for start profiling
     env.setdefault('AIPERF_DATASET_CONFIGURATION_TIMEOUT', '600.0')  # 10 minutes for dataset config
     
+    # Bound the wall-clock time of the child process. Without a timeout a hung
+    # AIPerf process keeps the Kubernetes Job alive until the cluster-level
+    # activeDeadlineSeconds fires (or forever, if none is set) and no metrics
+    # are ever exported. When a benchmark duration is configured we derive the
+    # bound from it; otherwise we fall back to a generous default that can be
+    # overridden with AIPERF_SUBPROCESS_TIMEOUT.
+    subprocess_timeout = _resolve_subprocess_timeout(benchmark_duration, benchmark_grace_period)
+    if subprocess_timeout is not None:
+        print(f"Subprocess timeout: {subprocess_timeout:.0f}s")
+
     try:
         # Run AIPerf with --ui-type none to disable TUI completely
         # This is the proper way to run AIPerf in non-interactive environments (Kubernetes/containers)
@@ -181,38 +315,51 @@ def run_benchmark(
             text=True,
             check=True,  # With --ui-type none, AIPerf should exit cleanly
             env=env,  # Pass environment with TUI-disabling variables
-            timeout=None  # No timeout - let benchmark run for full duration
+            timeout=subprocess_timeout,
         )
-        
+
         print("✅ Benchmark completed successfully")
         print(f"Results saved to: {output_dir}")
-        
-        # Parse results if available; redact API key from stdout (AIPerf may echo full CLI command)
-        stdout_safe = result.stdout
-        if api_key and api_key in stdout_safe:
-            stdout_safe = stdout_safe.replace(api_key, "***REDACTED***")
-        # Also redact Bearer sk_... patterns in case key appears in other forms
-        stdout_safe = re.sub(r"Bearer\s+sk_[^\s'\"]+", "Bearer ***", stdout_safe, flags=re.IGNORECASE)
+
+        # Scrub credentials from stdout before it is printed or returned:
+        # AIPerf echoes the resolved CLI arguments, which include auth headers.
+        stdout_safe = _redact_secrets(result.stdout, secret_values)
 
         results = {
             "status": "success",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": _utc_now_iso(),
             "model": model_name,
             "endpoint": endpoint_url,
             "output_dir": output_dir,
             "stdout": stdout_safe,
         }
-        
+
         # Try to find and parse result files
         result_files = list(output_path.glob("*.json*"))
         if result_files:
             results["result_files"] = [str(f) for f in result_files]
-        
+
         return results
-        
+
+    except subprocess.TimeoutExpired as e:
+        # Treated as a failure rather than a crash so that partial artifacts are
+        # still reported and the exit path stays identical to other failures.
+        print(f"❌ Benchmark timed out after {e.timeout:.0f}s")
+        result_files = list(output_path.glob("*.json*"))
+        return {
+            "status": "error",
+            "timestamp": _utc_now_iso(),
+            "error": f"AIPerf timed out after {e.timeout:.0f}s",
+            "exit_code": None,
+            "stdout": _redact_secrets(
+                e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else e.stdout,
+                secret_values,
+            ),
+            "result_files": [str(f) for f in result_files] if result_files else None,
+        }
     except subprocess.CalledProcessError as e:
         print(f"❌ Benchmark failed with exit code {e.returncode}")
-        
+
         # Check if result files exist despite the error (partial success)
         result_files = list(output_path.glob("*.json*"))
         if result_files:
@@ -220,40 +367,39 @@ def run_benchmark(
             for f in result_files:
                 print(f"   - {f}")
             print("   This may indicate a non-fatal error (e.g., timeout during cleanup)")
-        
+
+        # Redact before previewing: the failure output is the most likely place
+        # for a credential to surface, because AIPerf prints the failing request.
+        stdout_safe = _redact_secrets(e.stdout, secret_values)
+        stderr_safe = _redact_secrets(e.stderr, secret_values)
+
         # Show error output (truncated for readability)
-        stdout_preview = e.stdout[:1000] if e.stdout else '(empty)'
-        stderr_preview = e.stderr[:1000] if e.stderr else '(empty)'
-        print(f"\nStdout preview (first 1000 chars):\n{stdout_preview}")
-        if e.stderr and e.stderr != e.stdout:
-            print(f"\nStderr preview (first 1000 chars):\n{stderr_preview}")
-        
+        print(f"\nStdout preview (first 1000 chars):\n{stdout_safe[:1000] or '(empty)'}")
+        if stderr_safe and stderr_safe != stdout_safe:
+            print(f"\nStderr preview (first 1000 chars):\n{stderr_safe[:1000]}")
+
         # Check for common error patterns
-        error_msg = e.stderr or e.stdout or "Unknown error"
+        error_msg = stderr_safe or stdout_safe or "Unknown error"
         if "TimeoutError" in error_msg or "timeout" in error_msg.lower():
             print("\n💡 Tip: If you see timeout errors, try increasing:")
             print("   - AIPERF_SERVICE_PROFILE_START_TIMEOUT")
             print("   - AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT")
             print("   - AIPERF_DATASET_CONFIGURATION_TIMEOUT")
-        
-        stdout_safe = (e.stdout or "")
-        if api_key and api_key in stdout_safe:
-            stdout_safe = stdout_safe.replace(api_key, "***REDACTED***")
-        stdout_safe = re.sub(r"Bearer\s+sk_[^\s'\"]+", "Bearer ***", stdout_safe, flags=re.IGNORECASE)
+
         return {
             "status": "error",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": _utc_now_iso(),
             "error": error_msg,
             "exit_code": e.returncode,
             "stdout": stdout_safe,
-            "stderr": e.stderr,
+            "stderr": stderr_safe,
             "result_files": [str(f) for f in result_files] if result_files else None,
         }
     except FileNotFoundError:
         print("❌ AIPerf not found. Please install it with: pip install aiperf")
         return {
             "status": "error",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": _utc_now_iso(),
             "error": "AIPerf not installed",
         }
 
@@ -427,13 +573,17 @@ def main():
     
     kwargs = {}
     if timeout:
+        # AIPerf accepts a fractional request timeout, so float is correct here.
         kwargs["request_timeout_seconds"] = float(timeout)
     if output_tokens_mean:
         kwargs["output_tokens_mean"] = int(output_tokens_mean)
     if benchmark_duration:
-        kwargs["benchmark_duration"] = float(benchmark_duration)
+        # These two flags are whole seconds. Casting to float produced values
+        # like "--benchmark-duration 480.0", which AIPerf rejects as invalid
+        # integers, so the run failed before a single request was sent.
+        kwargs["benchmark_duration"] = int(float(benchmark_duration))
     if benchmark_grace_period:
-        kwargs["benchmark_grace_period"] = float(benchmark_grace_period)
+        kwargs["benchmark_grace_period"] = int(float(benchmark_grace_period))
     
     # Run benchmark
     results = run_benchmark(
@@ -450,16 +600,20 @@ def main():
         **kwargs
     )
     
-    # Print results summary
+    # Print results summary. `stdout` is excluded: it was already streamed to the
+    # log once by AIPerf, it can be megabytes long, and echoing captured process
+    # output a second time only increases the chance of leaking something.
     print()
     print("=" * 60)
     print("Benchmark Summary")
     print("=" * 60)
-    print(json.dumps(results, indent=2))
+    summary = {key: value for key, value in results.items() if key not in ("stdout", "stderr")}
+    print(json.dumps(summary, indent=2))
     
     # Validate benchmark results even if AIPerf exited with code 0
     # AIPerf may exit with code 0 but fail to produce valid results
     benchmark_failed = False
+    metrics: Dict[str, float] = {}
     if results.get("status") != "success":
         benchmark_failed = True
         print(f"❌ Benchmark failed with status: {results.get('status')}")
@@ -469,18 +623,18 @@ def main():
         print("=" * 60)
         print("Validating Benchmark Results")
         print("=" * 60)
-        
+
         # Parse metrics to validate results
         metrics = parse_aiperf_results(output_dir)
-        
+
         # Check for required result file
         result_file = Path(output_dir) / "profile_export_aiperf.json"
         if not result_file.exists():
             print(f"⚠️  Required result file not found: {result_file}")
             benchmark_failed = True
         elif not metrics:
-            print(f"⚠️  Result file exists but no metrics extracted")
-            print(f"   This may indicate the benchmark didn't complete successfully")
+            print("⚠️  Result file exists but no metrics extracted")
+            print("   This may indicate the benchmark didn't complete successfully")
             benchmark_failed = True
         else:
             # Check for critical metrics that should always be present
@@ -488,20 +642,19 @@ def main():
             missing_critical = [m for m in critical_metrics if m not in metrics]
             if missing_critical:
                 print(f"⚠️  Missing critical metrics: {missing_critical}")
-                print(f"   This may indicate incomplete benchmark results")
+                print("   This may indicate incomplete benchmark results")
                 # Don't fail on this - some metrics may be optional
                 # But log it for visibility
-    
+
     # Send to Datadog if benchmark was successful and has valid results
     if results.get("status") == "success" and not benchmark_failed:
         print()
         print("=" * 60)
         print("Sending Results to Datadog")
         print("=" * 60)
-        
-        # Parse metrics (already parsed above, but parse again to ensure we have latest)
-        metrics = parse_aiperf_results(output_dir)
-        
+
+        # Reuse the metrics parsed during validation instead of re-reading and
+        # re-parsing the export file, which cannot have changed in between.
         if metrics:
             # Prepare tags
             base_tags = [

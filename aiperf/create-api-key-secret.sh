@@ -1,10 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Create Kubernetes secret for api.hyperbolic.xyz API key (benchmarks).
 # Usage: OPENAI_API_KEY=your-key ./create-api-key-secret.sh [NAMESPACE]
 #   or:  HYPERBOLIC_API_KEY=your-key ./create-api-key-secret.sh [NAMESPACE]
 # Never commit the key to the repo; use env var or paste when prompted.
 
-set -e
+# `-u` turns a typo in a variable name into an error rather than an empty secret
+# value, and `pipefail` propagates a failure from the `kubectl create` side of the
+# pipe below, which `set -e` alone does not catch.
+set -euo pipefail
 
 NAMESPACE="${1:-inference-benchmark}"
 SECRET_NAME="hyperbolic-api-key"
